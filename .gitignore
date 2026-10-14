@@ -1,0 +1,5 @@
+.gala/
+.DS_Store
+DerivedData/
+*.xcuserstate
+xcuserdata/
