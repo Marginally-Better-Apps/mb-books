@@ -54,6 +54,7 @@ jobs:
       - name: Validate release tooling and workflows
         run: |
           npm test
+          python3 -m unittest discover -s scripts -p 'test_*.py'
           actionlint
           bash -n ios-build.sh ios-test.sh scripts/version.sh .githooks/commit-msg
           xcodegen generate
