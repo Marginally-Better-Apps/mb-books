@@ -3,3 +3,7 @@
 DerivedData/
 *.xcuserstate
 xcuserdata/
+node_modules/
+artifacts/
+.ci-build/
+__pycache__/

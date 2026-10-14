@@ -1,0 +1,77 @@
+name: Publish PR preview
+
+# The build has no write token. This publisher runs trusted default-branch code
+# and only handles the IPA as data. Never check out or execute PR source here.
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: preview-${{ github.event.workflow_run.head_branch }}
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    name: Publish Autoloader preview
+    if: github.event.workflow_run.event == 'pull_request' && github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      actions: read
+      contents: write
+      pull-requests: read
+    steps:
+      - name: Find the current pull request
+        id: pr
+        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7
+        with:
+          script: |
+            const run = context.payload.workflow_run;
+            const { data: pulls } = await github.rest.repos.listPullRequestsAssociatedWithCommit({
+              ...context.repo, commit_sha: run.head_sha,
+            });
+            const pr = pulls.find(pr => pr.state === 'open' &&
+              pr.base.repo.full_name === `${context.repo.owner}/${context.repo.repo}` &&
+              pr.head.sha === run.head_sha);
+            if (!pr) { core.notice('No current open PR for this build. Skipping stale preview.'); return; }
+            core.setOutput('number', String(pr.number));
+            core.setOutput('sha', pr.head.sha);
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        if: steps.pr.outputs.number
+        with:
+          ref: main
+          persist-credentials: false
+      - name: Download the successful build
+        if: steps.pr.outputs.number
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: ios-unsigned
+          path: artifacts
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          run-id: ${{ github.event.workflow_run.id }}
+      - name: Validate and publish unsigned IPA
+        if: steps.pr.outputs.number
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUMBER: ${{ steps.pr.outputs.number }}
+          SOURCE_SHA: ${{ steps.pr.outputs.sha }}
+        run: |
+          python3 scripts/validate-ipa.py artifacts/MBBooks-unsigned.ipa
+          (cd artifacts && sha256sum --check MBBooks-unsigned.ipa.sha256)
+          node - <<'JS' > preview-notes.md
+          const { installNotes } = require('./scripts/install-links.cjs');
+          console.log(`Preview for PR #${process.env.PR_NUMBER}, source ${process.env.SOURCE_SHA}.\n`);
+          console.log(installNotes(process.env.GITHUB_REPOSITORY, `pr-${process.env.PR_NUMBER}`));
+          JS
+          tag="pr-$PR_NUMBER"
+          if gh release view "$tag" >/dev/null 2>&1; then
+            gh release edit "$tag" --notes-file preview-notes.md --prerelease
+          else
+            gh release create "$tag" --target "$SOURCE_SHA" --title "PR #$PR_NUMBER preview" --notes-file preview-notes.md --prerelease --latest=false
+          fi
+          gh release upload "$tag" artifacts/MBBooks-unsigned.ipa artifacts/MBBooks-unsigned.ipa.sha256 artifacts/build-info.json --clobber
+          cat preview-notes.md >> "$GITHUB_STEP_SUMMARY"

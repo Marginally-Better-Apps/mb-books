@@ -1,0 +1,99 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    types: [opened, synchronize, reopened, edited, ready_for_review]
+  merge_group:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  conventions:
+    name: Conventional PR title
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - name: Validate squash commit title
+        if: github.event_name == 'pull_request'
+        env:
+          PR_TITLE: ${{ github.event.pull_request.title }}
+        run: node scripts/conventional.cjs
+
+  build:
+    name: Validate and build
+    runs-on: macos-15
+    timeout-minutes: 30
+    env:
+      GALA_BUILD_DIR: ${{ github.workspace }}/.ci-build
+      GALA_ARTIFACT_DIR: ${{ github.workspace }}/artifacts
+      GALA_JOBS: 3
+      HOMEBREW_NO_AUTO_UPDATE: 1
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '24'
+          cache: npm
+      - name: Install build tools
+        run: brew install xcodegen actionlint
+      - run: npm ci --ignore-scripts
+      - name: Validate release tooling and workflows
+        run: |
+          npm test
+          actionlint
+          bash -n ios-build.sh ios-test.sh scripts/version.sh .githooks/commit-msg
+          xcodegen generate
+          git diff --exit-code -- MBBooks.xcodeproj
+      - name: Compile simulator app and check identity
+        run: ./ios-test.sh
+      - name: Build and validate device IPA
+        run: ./ios-build.sh
+      - name: Save unsigned IPA, checksum, and build metadata
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: ios-unsigned
+          path: artifacts/
+          if-no-files-found: error
+          retention-days: 14
+
+  release:
+    name: Release
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: [conventions, build]
+    runs-on: macos-15
+    timeout-minutes: 30
+    permissions:
+      contents: write
+    env:
+      GALA_BUILD_DIR: ${{ github.workspace }}/.ci-build
+      GALA_ARTIFACT_DIR: ${{ github.workspace }}/artifacts
+      GALA_JOBS: 3
+      HOMEBREW_NO_AUTO_UPDATE: 1
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '24'
+          cache: npm
+      - run: brew install xcodegen
+      - run: npm ci --ignore-scripts
+      - name: Bump version, build IPA, tag, and publish release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: npm run release
