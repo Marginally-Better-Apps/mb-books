@@ -30,3 +30,17 @@ test('Conventional Commits map to semantic version bumps', async () => {
     assert.equal(await analyzeCommits({ preset: 'conventionalcommits' }, context(message)), expected, message);
   }
 });
+
+test('Release notes render with the installed Conventional Commits preset', async () => {
+  const { generateNotes } = await import('@semantic-release/release-notes-generator');
+  const notes = await generateNotes({ preset: 'conventionalcommits' }, {
+    cwd: process.cwd(),
+    options: { repositoryUrl: 'https://github.com/Marginally-Better-Apps/mb-books' },
+    commits: [{ hash: 'a'.repeat(40), message: 'feat(reader): import EPUB' }],
+    lastRelease: { version: '0.1.0', gitTag: 'v0.1.0' },
+    nextRelease: { version: '0.2.0', gitTag: 'v0.2.0' },
+    logger: { log() {} },
+  });
+  assert.match(notes, /import EPUB/);
+  assert.match(notes, /0\.2\.0/);
+});
