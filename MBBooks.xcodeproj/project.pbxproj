@@ -18,6 +18,7 @@
 		45CE93CA91410B1AE3E24858 /* CurlPagePresenter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2949AD9B0377F5FCE7E5EE2A /* CurlPagePresenter.swift */; };
 		4CCDB962E46996754A313E03 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 6ECB902B3F6EACB3AE45B672 /* Assets.xcassets */; };
 		5B9D832D1A402D04D68C83CC /* Book.swift in Sources */ = {isa = PBXBuildFile; fileRef = 055A4267B66C67A37AACC713 /* Book.swift */; };
+		674F708948C599A400D8338C /* ReaderLayout.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8F24B7C046F1C90883599BFA /* ReaderLayout.swift */; };
 		70E0CCC0659941BE22EFCBAB /* LibraryFlowTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9EA342DA0334EA57CF221206 /* LibraryFlowTests.swift */; };
 		789B9EC448C8FE27530DFB2D /* RootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 75D3C0CAA30B740DC720ED4F /* RootView.swift */; };
 		7A4D0A3AB1BF67C042D78D49 /* ReaderView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0D5D1C93490D54BC40EF5028 /* ReaderView.swift */; };
@@ -98,6 +99,7 @@
 		79F0E2BE6A52D8040E6D2D8F /* ReaderLogicTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReaderLogicTests.swift; sourceTree = "<group>"; };
 		79FE1E6F9678535B451F2375 /* BookSearchView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BookSearchView.swift; sourceTree = "<group>"; };
 		8561DEC7C236E89A625FA938 /* FontDeobfuscator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FontDeobfuscator.swift; sourceTree = "<group>"; };
+		8F24B7C046F1C90883599BFA /* ReaderLayout.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReaderLayout.swift; sourceTree = "<group>"; };
 		8FF296A5EC457BC7C3BCE99F /* EPUBParser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EPUBParser.swift; sourceTree = "<group>"; };
 		90C6EC0D4B51E5DE7127004E /* ChapterView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChapterView.swift; sourceTree = "<group>"; };
 		94EAC6AA56BD7B9A70520E83 /* HomeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HomeView.swift; sourceTree = "<group>"; };
@@ -193,6 +195,7 @@
 				2949AD9B0377F5FCE7E5EE2A /* CurlPagePresenter.swift */,
 				5FC2E41709670A4D0BE95766 /* FixedLayout.swift */,
 				6CCF5E939F96EBAFB5EFE6DC /* PageTurn.swift */,
+				8F24B7C046F1C90883599BFA /* ReaderLayout.swift */,
 				C769504B3B7D3AE01EDF3404 /* ReaderModel.swift */,
 				7616D0F51356D198B34C40E3 /* ReaderPreferences.swift */,
 				0D5D1C93490D54BC40EF5028 /* ReaderView.swift */,
@@ -418,6 +421,7 @@
 				8A476EE9247D3E98479B463F /* NavigationParser.swift in Sources */,
 				E46A2C867A7F59BE146F674B /* PageTurn.swift in Sources */,
 				AF5CADA375219265EE37114F /* Publication.swift in Sources */,
+				674F708948C599A400D8338C /* ReaderLayout.swift in Sources */,
 				0533511C51301DF997F33DD9 /* ReaderModel.swift in Sources */,
 				F6FB0807B0D9BDB43F58F2A5 /* ReaderPreferences.swift in Sources */,
 				7A4D0A3AB1BF67C042D78D49 /* ReaderView.swift in Sources */,

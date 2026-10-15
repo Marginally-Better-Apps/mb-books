@@ -180,4 +180,81 @@ final class ScreenshotTour: XCTestCase {
             sleep(1)
         }
     }
+
+    /// Captures the main screens in portrait and landscape, for checking layouts across iPhone and iPad sizes.
+    func testLayoutTour() throws {
+        guard let output = ProcessInfo.processInfo.environment["MB_TOUR_OUTPUT"] else {
+            throw XCTSkip("Set MB_TOUR_OUTPUT to run the screenshot tour.")
+        }
+        let outputURL = URL(filePath: output)
+        try FileManager.default.createDirectory(at: outputURL, withIntermediateDirectories: true)
+        let app = XCUIApplication()
+        app.launchArguments = ["-ui-testing", "-seed-sample-book"]
+        app.launch()
+        func save(_ name: String) {
+            sleep(1)
+            try? XCUIScreen.main.screenshot().pngRepresentation.write(to: outputURL.appending(path: "l-\(name).png"))
+        }
+        func showChrome() {
+            if !app.buttons["reader.menu"].exists { app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap() }
+            _ = app.buttons["reader.menu"].waitForExistence(timeout: 3)
+        }
+        func closeSheet() {
+            app.buttons["Done"].firstMatch.tap()
+            sleep(1)
+        }
+        /// Highlights a word, so the highlight menu appears anchored to it.
+        func highlight(_ text: String, _ name: String) {
+            app.webViews.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", text)).firstMatch.press(forDuration: 1.2)
+            if app.menuItems["Highlight"].waitForExistence(timeout: 3) {
+                app.menuItems["Highlight"].tap()
+                save(name)
+                app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.95)).tap()
+                sleep(1)
+            }
+        }
+        for (label, orientation) in [("portrait", UIDeviceOrientation.portrait), ("landscape", .landscapeLeft)] {
+            XCUIDevice.shared.orientation = orientation
+            app.buttons["Home"].firstMatch.tap()
+            save("\(label)-01-home")
+            app.buttons["settings.open"].firstMatch.tap()
+            save("\(label)-02-settings")
+            app.buttons["settings.done"].tap()
+            app.buttons["Library"].firstMatch.tap()
+            save("\(label)-03-library")
+            let book = app.buttons["book.The Sample Voyage"]
+            XCTAssertTrue(book.waitForExistence(timeout: 15))
+            book.tap()
+            XCTAssertTrue(app.webViews.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "of chapter")).firstMatch.waitForExistence(timeout: 30), "\(label): the book should open")
+            save("\(label)-04-page")
+            highlight("Paragraph 2", "\(label)-04b-highlight")
+            showChrome()
+            app.buttons["reader.menu"].tap()
+            save("\(label)-05-menu")
+            app.buttons["reader.menu.themes"].tap()
+            save("\(label)-06-themes")
+            app.buttons["themes.pageTurn"].tap()
+            app.buttons["Scroll"].firstMatch.tap()
+            closeSheet()
+            app.swipeUp()
+            sleep(1)
+            save("\(label)-07-scroll")
+            highlight("Paragraph 6", "\(label)-07b-scroll-highlight")
+            showChrome()
+            app.buttons["reader.menu"].tap()
+            app.buttons["reader.menu.contents"].tap()
+            save("\(label)-08-contents")
+            closeSheet()
+            showChrome()
+            app.buttons["reader.menu"].tap()
+            app.buttons["reader.menu.themes"].tap()
+            app.buttons["themes.pageTurn"].tap()
+            app.buttons["Slide"].firstMatch.tap()
+            closeSheet()
+            showChrome()
+            app.buttons["reader.close"].tap()
+            sleep(1)
+        }
+        XCUIDevice.shared.orientation = .portrait
+    }
 }

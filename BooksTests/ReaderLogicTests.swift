@@ -151,6 +151,44 @@ final class ReaderLogicTests: XCTestCase {
         XCTAssertEqual(decoded.pageTurn, .curl)
     }
 
+    func testLayoutKeepsLinesReadableOnEveryScreen() {
+        let phone = ReaderLayout(size: CGSize(width: 402, height: 874), safeArea: UIEdgeInsets(top: 62, left: 0, bottom: 34, right: 0),
+                                 margins: 1, fontScale: 1, scrolls: false, allowsColumns: true)
+        XCTAssertEqual(phone.columns, 1)
+        XCTAssertEqual(phone.side, 24, "Phones use the plain margin")
+
+        let padPortrait = ReaderLayout(size: CGSize(width: 1032, height: 1376), safeArea: UIEdgeInsets(top: 24, left: 0, bottom: 20, right: 0),
+                                       margins: 1, fontScale: 1, scrolls: false, allowsColumns: true)
+        XCTAssertEqual(padPortrait.columns, 1)
+        XCTAssertEqual(1032 - 2 * padPortrait.side, ReaderLayout.readableMeasure, accuracy: 0.5, "A 13-inch iPad in portrait caps the line length")
+
+        let padLandscape = ReaderLayout(size: CGSize(width: 1376, height: 1032), safeArea: .zero,
+                                        margins: 1, fontScale: 1, scrolls: false, allowsColumns: true)
+        XCTAssertEqual(padLandscape.columns, 2, "Landscape iPads show two pages")
+        XCTAssertLessThanOrEqual(688 - 2 * padLandscape.side, ReaderLayout.readableMeasure)
+
+        let padScrolling = ReaderLayout(size: CGSize(width: 1376, height: 1032), safeArea: .zero,
+                                        margins: 1, fontScale: 1, scrolls: true, allowsColumns: true)
+        XCTAssertEqual(padScrolling.columns, 1, "Scroll mode is a single column")
+        XCTAssertEqual(1376 - 2 * padScrolling.side, ReaderLayout.readableMeasure, accuracy: 0.5)
+
+        let wideMargins = ReaderLayout(size: CGSize(width: 1032, height: 1376), safeArea: .zero,
+                                       margins: 2, fontScale: 1, scrolls: false, allowsColumns: true)
+        XCTAssertGreaterThan(wideMargins.side, padPortrait.side, "The margin setting still widens capped margins")
+    }
+
+    func testScrollFadesSitBehindTheChrome() {
+        let stops = ReaderLayout.scrollFadeStops(height: 1000, safeArea: UIEdgeInsets(top: 60, left: 0, bottom: 30, right: 0))
+        XCTAssertEqual(stops.count, 4)
+        XCTAssertEqual(stops[0], 0.09, accuracy: 1e-9, "Text is gone behind the book title")
+        XCTAssertEqual(stops[3], 0.934, accuracy: 1e-9, "…and behind the page label")
+        XCTAssertEqual(stops, stops.sorted())
+        let layout = ReaderLayout(size: CGSize(width: 402, height: 1000), safeArea: UIEdgeInsets(top: 60, left: 0, bottom: 30, right: 0),
+                                  margins: 1, fontScale: 1, scrolls: true, allowsColumns: true)
+        XCTAssertLessThan(1 - layout.bottom / 1000, stops[2], "The last line scrolls clear of the bottom fade")
+        XCTAssertGreaterThan(layout.top / 1000, stops[1], "The first line starts below the top fade")
+    }
+
     func testSortKeysIgnoreLeadingArticles() {
         XCTAssertEqual(Book.sortKey("The Odyssey"), "odyssey")
         XCTAssertEqual(Book.sortKey("An Answer"), "answer")

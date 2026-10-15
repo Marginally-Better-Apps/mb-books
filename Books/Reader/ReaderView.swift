@@ -52,6 +52,7 @@ private struct ReaderScreen: View {
 
     @Environment(\.dismiss) private var dismiss
     @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @Environment(\.scenePhase) private var scenePhase
     @Environment(OrientationLock.self) private var orientationLock
     @Namespace private var glass
@@ -63,12 +64,8 @@ private struct ReaderScreen: View {
             palette.backgroundColor.ignoresSafeArea()
             ReaderContainer(model: model)
                 .ignoresSafeArea()
-                .overlay { if model.isScrollMode { scrollFades } }
-                .popover(item: $model.popover, attachmentAnchor: .rect(.rect(model.popover?.rect ?? .zero))) { popover in
-                    ReaderPopoverContent(model: model, popover: popover)
-                        .presentationCompactAdaptation(.popover)
-                }
                 .accessibilityIdentifier("reader.content")
+            popoverAnchor
             chrome
             if isMenuOpen {
                 Color.black.opacity(0.001)
@@ -83,7 +80,7 @@ private struct ReaderScreen: View {
         .sheet(item: $model.sheet) { sheet in
             switch sheet {
             case .contents: ContentsView(model: model)
-            case .themes: ThemesView(model: model)
+            case .themes: ThemesView(model: model, isRegularWidth: horizontalSizeClass == .regular)
             case .search: BookSearchView(model: model)
             }
         }
@@ -105,16 +102,20 @@ private struct ReaderScreen: View {
         }
     }
 
-    /// Fades text out under the status bar and page label while scrolling.
-    private var scrollFades: some View {
-        let background = model.palette.backgroundColor
-        return VStack(spacing: 0) {
-            LinearGradient(colors: [background, background.opacity(0)], startPoint: .top, endPoint: .bottom)
-                .frame(height: 64)
-            Spacer()
-            LinearGradient(colors: [background.opacity(0), background], startPoint: .top, endPoint: .bottom)
-                .frame(height: 48)
+    /// An invisible view covering the popover's target, such as a highlight. `reader.js` reports rects
+    /// in full-screen coordinates, so the anchor lives in a full-screen layer rather than the safe area.
+    private var popoverAnchor: some View {
+        GeometryReader { _ in
+            let rect = model.popover?.rect ?? .zero
+            Color.clear
+                .frame(width: max(rect.width, 1), height: max(rect.height, 1))
+                .popover(item: $model.popover) { popover in
+                    ReaderPopoverContent(model: model, popover: popover)
+                        .presentationCompactAdaptation(.popover)
+                }
+                .position(x: rect.midX, y: rect.midY)
         }
+        .ignoresSafeArea()
         .allowsHitTesting(false)
     }
 

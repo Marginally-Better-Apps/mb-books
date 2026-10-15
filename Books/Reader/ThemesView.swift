@@ -7,6 +7,12 @@ struct ThemesView: View {
     @Environment(\.dismiss) private var dismiss
     @AppStorage(AppAppearance.storageKey) private var appearance = AppAppearance.system
 
+    /// Whether the reader is full width on iPad, where sheets are smaller cards and half height
+    /// would cut off Customize. Read from the reader, since a sheet can report a compact width.
+    var isRegularWidth = false
+
+    private var compactHeight: PresentationDetent { isRegularWidth ? .height(480) : .medium }
+
     private let columns = [GridItem(.flexible(), spacing: 12), GridItem(.flexible(), spacing: 12), GridItem(.flexible(), spacing: 12)]
 
     var body: some View {
@@ -47,8 +53,8 @@ struct ThemesView: View {
                 }
             }
         }
-        .presentationDetents([.medium, .large])
-        .presentationBackgroundInteraction(.enabled(upThrough: .medium))
+        .presentationDetents([compactHeight, .large])
+        .presentationBackgroundInteraction(.enabled(upThrough: compactHeight))
     }
 
     private var controls: some View {

@@ -44,7 +44,11 @@ final class ReaderViewController: UIViewController {
     private let userContentController = WKUserContentController()
     /// Keeps spare chapters in the window, behind the page, so WebKit lays them out and paints them.
     private let parkingView = UIView()
+    /// Covers the parked chapters, so scroll mode's faded edges show the page color rather than them.
+    private let backdropView = UIView()
     private let touchTracker = TouchStartRecognizer()
+    /// Fades text out at the top and bottom of the screen in scroll mode.
+    private let scrollFadeMask = CAGradientLayer()
     private lazy var edgeTap = UITapGestureRecognizer(target: self, action: #selector(handleEdgeTap(_:)))
     private var presenter: PageTurnPresenter?
     private var presenterKind: PresenterKind?
@@ -81,6 +85,10 @@ final class ReaderViewController: UIViewController {
         parkingView.autoresizingMask = [.flexibleWidth, .flexibleHeight]
         parkingView.isUserInteractionEnabled = false
         view.addSubview(parkingView)
+        backdropView.frame = view.bounds
+        backdropView.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        backdropView.isUserInteractionEnabled = false
+        view.addSubview(backdropView)
         view.addGestureRecognizer(touchTracker)
         edgeTap.delegate = self
         edgeTap.cancelsTouchesInView = false
@@ -101,6 +109,7 @@ final class ReaderViewController: UIViewController {
         super.viewDidLayoutSubviews()
         let size = view.bounds.size
         guard size.width > 0, size.height > 0 else { return }
+        updateScrollFades()
         if lastLayoutSize == .zero {
             lastLayoutSize = size
             spreadPlan = makeSpreadPlan()
@@ -173,21 +182,15 @@ final class ReaderViewController: UIViewController {
 
     private func scriptConfig() -> ScriptConfiguration {
         let style = model.preferences.style
-        let size = view.bounds.size
-        let safe = view.safeAreaInsets
-        let isWide = size.width >= 600
-        let landscape = size.width > size.height
-        let horizontalSafe = max(safe.left, safe.right)
-        let baseMargin: CGFloat = isWide ? 52 : 24
+        let layout = ReaderLayout(
+            size: view.bounds.size, safeArea: view.safeAreaInsets, margins: style.margins,
+            fontScale: model.preferences.fontScale, scrolls: model.isScrollMode, allowsColumns: style.allowMultipleColumns)
         let palette = model.palette
         return ScriptConfiguration(
             layout: publication.layout.rawValue,
             mode: model.isScrollMode ? "scroll" : "paginated",
-            insets: .init(
-                top: safe.top + (isWide ? 52 : 40),
-                bottom: safe.bottom + (isWide ? 44 : 34),
-                side: baseMargin * style.margins + horizontalSafe),
-            columns: style.allowMultipleColumns && landscape && size.width >= 700 && !model.isScrollMode ? 2 : 1,
+            insets: .init(top: layout.top, bottom: layout.bottom, side: layout.side),
+            columns: layout.columns,
             fontScale: model.preferences.fontScale,
             fontFamily: style.font.cssFamily,
             bold: style.boldText,
@@ -206,11 +209,29 @@ final class ReaderViewController: UIViewController {
     private func updateBackground() {
         let color = UIColor(model.palette.backgroundColor)
         view.backgroundColor = color
+        backdropView.backgroundColor = color
         presenter?.view.backgroundColor = color
         for chapter in chapters {
             chapter.backgroundColor = color
             chapter.webView.underPageBackgroundColor = color
         }
+    }
+
+    private func updateScrollFades() {
+        guard let host = presenter?.view else { return }
+        guard model.isScrollMode else {
+            host.layer.mask = nil
+            return
+        }
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        scrollFadeMask.colors = [UIColor.clear, .black, .black, .clear].map(\.cgColor)
+        // The page fills this view; its own bounds may not have caught up during layout.
+        scrollFadeMask.locations = ReaderLayout.scrollFadeStops(height: view.bounds.height, safeArea: view.safeAreaInsets)
+            .map { NSNumber(value: Double($0)) }
+        scrollFadeMask.frame = view.bounds
+        host.layer.mask = scrollFadeMask
+        CATransaction.commit()
     }
 
     private func updateScrolling() {
@@ -263,6 +284,7 @@ final class ReaderViewController: UIViewController {
         self.presenter = presenter
         presenterKind = kind
         queuedTurn = nil
+        updateScrollFades()
     }
 
     private func makeSpreadPlan() -> SpreadPlan {
@@ -290,6 +312,7 @@ final class ReaderViewController: UIViewController {
         installUserScripts()
         installPresenter()
         updateScrolling()
+        updateScrollFades()
         let plan = makeSpreadPlan()
         if plan != spreadPlan {
             spreadPlan = plan
