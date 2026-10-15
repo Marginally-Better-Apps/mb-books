@@ -3,6 +3,16 @@ import XCTest
 /// End-to-end flows against a generated EPUB 3.4 sample book in an isolated, in-memory library.
 @MainActor
 final class LibraryFlowTests: XCTestCase {
+    /// First launches on a freshly booted simulator (as on CI) can be slow while WebKit warms up.
+    private let launchTimeout: TimeInterval = 60
+
+    override func record(_ issue: XCTIssue) {
+        // Attach what the screen looked like when an assertion failed.
+        var issue = issue
+        issue.add(XCTAttachment(screenshot: XCUIScreen.main.screenshot()))
+        super.record(issue)
+    }
+
     private lazy var app: XCUIApplication = {
         continueAfterFailure = false
         let app = XCUIApplication()
@@ -14,12 +24,12 @@ final class LibraryFlowTests: XCTestCase {
     func testOpensBookAndUsesReaderMenus() throws {
         app.tabBars.buttons["Library"].tap()
         let book = app.buttons["book.The Sample Voyage"]
-        XCTAssertTrue(book.waitForExistence(timeout: 15), "The seeded book should appear in the library")
+        XCTAssertTrue(book.waitForExistence(timeout: launchTimeout), "The seeded book should appear in the library")
         book.tap()
 
         let content = app.otherElements["reader.content"]
-        XCTAssertTrue(content.waitForExistence(timeout: 10))
-        XCTAssertTrue(app.webViews.staticTexts["Departure"].waitForExistence(timeout: 10), "Chapter 1 should render")
+        XCTAssertTrue(content.waitForExistence(timeout: launchTimeout))
+        XCTAssertTrue(app.webViews.staticTexts["Departure"].waitForExistence(timeout: launchTimeout), "Chapter 1 should render")
 
         showChrome()
         let pageLabel = app.buttons["reader.pageLabel"]
@@ -68,9 +78,9 @@ final class LibraryFlowTests: XCTestCase {
     func testTurnsPagesAcrossChapters() throws {
         app.tabBars.buttons["Library"].tap()
         let book = app.buttons["book.The Sample Voyage"]
-        XCTAssertTrue(book.waitForExistence(timeout: 15))
+        XCTAssertTrue(book.waitForExistence(timeout: launchTimeout))
         book.tap()
-        XCTAssertTrue(app.webViews.staticTexts["Departure"].waitForExistence(timeout: 10))
+        XCTAssertTrue(app.webViews.staticTexts["Departure"].waitForExistence(timeout: launchTimeout))
 
         // Tapping the right edge repeatedly pages through chapter 1 into chapter 2.
         let rightEdge = app.coordinate(withNormalizedOffset: CGVector(dx: 0.93, dy: 0.5))
@@ -95,8 +105,9 @@ final class LibraryFlowTests: XCTestCase {
     }
 
     func testSettingsShowsAppearanceAndRepositoryLink() throws {
+        XCTAssertTrue(app.buttons["settings.open"].firstMatch.waitForExistence(timeout: launchTimeout))
         app.buttons["settings.open"].firstMatch.tap()
-        XCTAssertTrue(app.buttons["Dark"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.buttons["Dark"].waitForExistence(timeout: launchTimeout))
         app.buttons["Dark"].tap()
         XCTAssertTrue(app.buttons["settings.github"].exists)
         app.buttons["settings.done"].tap()

@@ -4,6 +4,10 @@ set -euo pipefail
 xcodegen generate
 # Unit tests cover the EPUB engine; UI tests drive the library and reader with a generated EPUB 3.4 book.
 destination="${MB_TEST_DESTINATION:-$(python3 scripts/pick-simulator.py)}"
+# Boot ahead of time so first-launch setup on a fresh simulator doesn't eat into UI test timeouts.
+if [[ "$destination" =~ id=([0-9A-F-]+) ]]; then
+  xcrun simctl bootstatus "${BASH_REMATCH[1]}" -b >/dev/null
+fi
 results="$GALA_BUILD_DIR/TestResults.xcresult"
 rm -rf "$results"
 xcodebuild -project MBBooks.xcodeproj -scheme MBBooks -configuration Debug \
