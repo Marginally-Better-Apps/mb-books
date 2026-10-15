@@ -19,10 +19,14 @@ python3 scripts/validate-ipa.py "$GALA_ARTIFACT_DIR/MBBooks-unsigned.ipa" "$APP_
 (cd "$GALA_ARTIFACT_DIR" && shasum -a 256 MBBooks-unsigned.ipa > MBBooks-unsigned.ipa.sha256)
 python3 - "$GALA_ARTIFACT_DIR/build-info.json" <<'INFO'
 import json, os, subprocess, sys
+try:
+    commit = subprocess.check_output(["git", "rev-parse", "HEAD"], text=True, stderr=subprocess.DEVNULL).strip()
+except (OSError, subprocess.CalledProcessError):
+    commit = os.environ.get("GITHUB_SHA", "unknown")  # Gala builds from a copy without .git.
 info = {
     "version": os.environ["APP_VERSION"],
     "build": os.environ["APP_BUILD_NUMBER"],
-    "commit": subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip(),
+    "commit": commit,
     "xcode": subprocess.check_output(["xcodebuild", "-version"], text=True).strip(),
     "signed": False,
 }
