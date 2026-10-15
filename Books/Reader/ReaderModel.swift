@@ -126,12 +126,9 @@ final class ReaderModel {
         if isFixedLayout {
             return String(localized: "\(page + 1) of \(pageCount)")
         }
-        let weights = progressionMap.weights
-        guard weights.indices.contains(location.spineIndex) else { return "" }
-        let pagesPerUnit = Double(pageCount) / weights[location.spineIndex]
-        let before = weights[..<location.spineIndex].reduce(0, +)
-        let total = max(pageCount, Int((progressionMap.total * pagesPerUnit).rounded()))
-        let current = min(total, Int((before * pagesPerUnit).rounded()) + page + 1)
+        guard let (current, total) = progressionMap.estimatedPage(
+            spineIndex: location.spineIndex, page: page, pageCount: pageCount)
+        else { return "" }
         return String(localized: "\(current) of \(total)")
     }
 

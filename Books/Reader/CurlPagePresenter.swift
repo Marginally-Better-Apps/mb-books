@@ -130,7 +130,8 @@ private final class PageSlot: UIViewController {
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 
     override func loadView() {
-        view = UIView()
+        // Start at the page's size, so the web view inside isn't squeezed to zero and re-laid out.
+        view = UIView(frame: CGRect(origin: .zero, size: page.bounds.size))
         view.clipsToBounds = true
         attach()
     }

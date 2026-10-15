@@ -41,6 +41,19 @@ nonisolated struct ProgressionMap: Sendable {
         return min(1, max(0, (before + weights[spineIndex] * min(1, max(0, progression))) / total))
     }
 
+    /// "Page x of y" across the whole book, estimated from the current chapter's page density.
+    func estimatedPage(spineIndex: Int, page: Int, pageCount: Int) -> (current: Int, total: Int)? {
+        guard weights.indices.contains(spineIndex), pageCount > 0 else { return nil }
+        let pagesPerUnit = Double(pageCount) / weights[spineIndex]
+        let before = weights[..<spineIndex].reduce(0, +)
+        let estimatedTotal = (total * pagesPerUnit).rounded()
+        let estimatedBefore = (before * pagesPerUnit).rounded()
+        // Page counts come from a web view; refuse anything that isn't a sensible number.
+        guard estimatedTotal.isFinite, estimatedTotal < 10_000_000 else { return nil }
+        let bookTotal = max(pageCount, Int(estimatedTotal))
+        return (min(bookTotal, Int(estimatedBefore) + min(max(page, 0), pageCount - 1) + 1), bookTotal)
+    }
+
     /// Inverse of `totalProgression`, for the progress scrubber.
     func location(forTotalProgression value: Double) -> (spineIndex: Int, progression: Double) {
         guard !weights.isEmpty else { return (0, 0) }

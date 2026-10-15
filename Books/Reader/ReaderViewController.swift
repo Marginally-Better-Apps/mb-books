@@ -1088,8 +1088,15 @@ enum ReaderScripts {
 }
 
 private extension Dictionary where Key == String, Value == Any {
-    func double(_ key: String) -> Double { (self[key] as? NSNumber)?.doubleValue ?? 0 }
-    func int(_ key: String) -> Int { (self[key] as? NSNumber)?.intValue ?? 0 }
+    func double(_ key: String) -> Double {
+        let value = (self[key] as? NSNumber)?.doubleValue ?? 0
+        return value.isFinite ? value : 0
+    }
+    /// An integer from JavaScript, where Infinity and NaN can't be trusted to convert.
+    func int(_ key: String) -> Int {
+        let value = double(key)
+        return value.isFinite ? Int(Swift.min(Swift.max(value, -1_000_000), 1_000_000)) : 0
+    }
 
     func rect(_ key: String) -> CGRect {
         guard let value = self[key] as? [String: Any] else { return .zero }

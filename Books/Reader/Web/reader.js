@@ -176,13 +176,15 @@
   }
 
   const scroller = () => document.scrollingElement || document.documentElement;
-  const pageWidth = () => window.innerWidth;
+  // A web view can briefly be zero-sized while it moves between views; never divide by zero.
+  const pageWidth = () => Math.max(1, window.innerWidth);
   const isRTL = () => getComputedStyle(document.documentElement).direction === 'rtl' ||
     (document.body && getComputedStyle(document.body).direction === 'rtl');
 
   function pageCount() {
     if (!isPaginated()) return 1;
-    return Math.max(1, Math.round(scroller().scrollWidth / pageWidth()));
+    const count = Math.round(scroller().scrollWidth / pageWidth());
+    return Number.isFinite(count) ? Math.max(1, count) : 1;
   }
 
   /// Keeps the scroll width a whole number of pages when multiple columns leave a half page.
@@ -210,6 +212,7 @@
   }
 
   function relayout(reason) {
+    if (window.innerWidth === 0 || window.innerHeight === 0) return layoutInfo();
     state.textNodes = null;
     applyStyles();
     padColumns();

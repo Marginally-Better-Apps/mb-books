@@ -15,6 +15,16 @@ final class ReaderLogicTests: XCTestCase {
         XCTAssertEqual(map.location(forTotalProgression: 1).spineIndex, 2)
     }
 
+    func testPageEstimatesSurviveNonsensePageCounts() throws {
+        let map = ProgressionMap(weights: [100, 300, 600])
+        let estimate = try XCTUnwrap(map.estimatedPage(spineIndex: 1, page: 2, pageCount: 6))
+        XCTAssertEqual(estimate.total, 20, "6 pages for 300 units means 20 for the book's 1000")
+        XCTAssertEqual(estimate.current, 5, "2 pages before chapter 2, then its third page")
+        XCTAssertNil(map.estimatedPage(spineIndex: 1, page: 0, pageCount: .max), "A web view mid-layout can report Infinity")
+        XCTAssertNil(map.estimatedPage(spineIndex: 1, page: 0, pageCount: 0))
+        XCTAssertNil(map.estimatedPage(spineIndex: 9, page: 0, pageCount: 3))
+    }
+
     func testLocatorsSortInReadingOrderAndFormatCFI() {
         let a = Locator(spineIndex: 1, progression: 0.9)
         let b = Locator(spineIndex: 2, progression: 0.1)
