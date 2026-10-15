@@ -9,7 +9,7 @@ The app icon is an Icon Composer document (`Books/Resources/AppIcon.icon`) with 
 ## Features
 
 - **Library:** Home with Continue, Reading Goals (daily minutes, streak, books per year), Want to Read, and Recently Added shelves. Library grid or list, sorting, collections, multi-select editing, book details, and search by title, author, series, subject, or publisher.
-- **Reader:** six Apple Books themes (Original, Quiet, Paper, Bold, Calm, Focus) in light and dark, with per-theme customization: font, bold text, line, character, and word spacing, margins, justification, and multiple columns. Slide, Curl, Fast Fade, and Scroll page turns. Font sizes, rotation lock, and keyboard arrows.
+- **Reader:** six Apple Books themes (Original, Quiet, Paper, Bold, Calm, Focus) in light and dark, with per-theme customization: font, bold text, line, character, and word spacing, margins, justification, and multiple columns. Slide, Curl, Fast Fade, and Scroll page turns that follow your finger, with neighboring chapters preloaded so turning between them is instant. Font sizes, rotation lock, and keyboard arrows.
 - **Annotations:** highlights in five colors or underline, notes, bookmarks, footnote popovers, and full-text search. Highlights use the CSS Custom Highlight API, so the book's DOM is never modified.
 - **Settings:** light, dark, or system appearance, reading goals, and a link to this repository.
 
@@ -34,7 +34,7 @@ Media overlays (read aloud) are parsed from the manifest but not played yet.
 
 - `Books/EPUB`: platform-independent parsing (`ZipArchive`, `MarkupParser`, `EPUBParser`, `NavigationParser`, `FontDeobfuscator`). These types are `nonisolated` and run off the main actor.
 - `Books/Library`: import pipeline (`BookImporter` extracts each book to `Application Support/Library/<id>/content`), SwiftData-backed library UI.
-- `Books/Reader`: `ReaderModel` (state and annotations), `ReaderViewController` (a single `WKWebView`, page turning, and the JS bridge), and SwiftUI chrome and sheets. `Web/reader.js` paginates and handles locations, highlights, search, and taps in an isolated content world. Fixed layouts load generated wrapper pages that scale each page in an iframe.
+- `Books/Reader`: `ReaderModel` (state and annotations), `ReaderViewController` (loading, the JS bridge, and chapter preloading across a few `ChapterView` web views), page-turn presenters in `PageTurn.swift` and `CurlPagePresenter.swift`, and SwiftUI chrome and sheets. `Web/reader.js` paginates and handles locations, highlights, search, and taps in an isolated content world. Fixed layouts load generated wrapper pages that scale each page in an iframe.
 - `Books/Models`: SwiftData models (`Book`, `BookCollection`, `Annotation`, `ReadingDay`) and `Locator`.
 
 Requires Xcode 26 and iOS 26 or newer. The project has no third-party dependencies. `project.yml` is the source of truth for project settings. Run `xcodegen generate` after changing it. Open `MBBooks.xcodeproj` and run the shared `MBBooks` scheme. For direct device runs in Xcode, select your development team and enable signing in your local build settings.

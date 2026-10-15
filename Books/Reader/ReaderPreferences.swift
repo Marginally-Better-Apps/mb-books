@@ -139,8 +139,9 @@ struct ThemeStyle: Codable, Equatable {
     static let marginsRange = 0.25...2.5
 }
 
+/// Apple Books' page turn options, in its menu order.
 enum PageTurnStyle: String, Codable, CaseIterable, Identifiable {
-    case curl, slide, fade, scroll
+    case slide, curl, fade, scroll
 
     var id: String { rawValue }
 
@@ -157,7 +158,7 @@ enum PageTurnStyle: String, Codable, CaseIterable, Identifiable {
         switch self {
         case .curl: "book.pages"
         case .slide: "rectangle.portrait.on.rectangle.portrait.angled"
-        case .fade: "circle.lefthalf.filled"
+        case .fade: "circle.dashed"
         case .scroll: "arrow.up.and.down.text.horizontal"
         }
     }

@@ -104,6 +104,30 @@ final class LibraryFlowTests: XCTestCase {
         XCTAssertTrue(app.webViews.staticTexts["Open Water"].waitForExistence(timeout: 10), "The book reopens where it was left")
     }
 
+    func testSwipesPagesInEveryStyle() throws {
+        app.tabBars.buttons["Library"].tap()
+        let book = app.buttons["book.The Sample Voyage"]
+        XCTAssertTrue(book.waitForExistence(timeout: launchTimeout))
+        book.tap()
+        XCTAssertTrue(app.webViews.staticTexts["Departure"].waitForExistence(timeout: launchTimeout))
+
+        // Each style pages back to the book's first page, then forward across the chapter boundary.
+        for style in ["Slide", "Curl", "Fast Fade"] {
+            choosePageTurn(style)
+            XCTAssertTrue(swipe(right: true, untilShowing: "Departure"), "\(style): swiping right returns to the first page")
+            XCTAssertTrue(swipe(right: false, untilShowing: "Open Water"), "\(style): swiping left pages into chapter 2")
+        }
+
+        // Scroll mode: pulling past the end of chapter 2 moves on to chapter 3.
+        choosePageTurn("Scroll")
+        var reachedChapterThree = false
+        for _ in 0..<20 where !reachedChapterThree {
+            app.swipeUp()
+            reachedChapterThree = app.webViews.staticTexts["Landfall"].waitForExistence(timeout: 1)
+        }
+        XCTAssertTrue(reachedChapterThree, "Scrolling past the end of a chapter should open the next one")
+    }
+
     func testSettingsShowsAppearanceAndRepositoryLink() throws {
         XCTAssertTrue(app.buttons["settings.open"].firstMatch.waitForExistence(timeout: launchTimeout))
         app.buttons["settings.open"].firstMatch.tap()
@@ -111,6 +135,31 @@ final class LibraryFlowTests: XCTestCase {
         app.buttons["Dark"].tap()
         XCTAssertTrue(app.buttons["settings.github"].exists)
         app.buttons["settings.done"].tap()
+    }
+
+    private func choosePageTurn(_ style: String) {
+        showChrome()
+        app.buttons["reader.menu"].tap()
+        app.buttons["reader.menu.themes"].tap()
+        let menu = app.buttons["themes.pageTurn"]
+        XCTAssertTrue(menu.waitForExistence(timeout: 5))
+        menu.tap()
+        let option = app.buttons[style].firstMatch
+        XCTAssertTrue(option.waitForExistence(timeout: 5), "The Page Turn menu should offer \(style)")
+        option.tap()
+        app.buttons["Done"].firstMatch.tap()
+    }
+
+    /// Swipes until the heading `title` is on screen (not just somewhere in the chapter's columns).
+    private func swipe(right: Bool, untilShowing title: String) -> Bool {
+        let screen = app.windows.firstMatch.frame
+        for _ in 0..<30 {
+            let heading = app.webViews.staticTexts[title].firstMatch
+            if heading.exists, screen.contains(CGPoint(x: heading.frame.midX, y: heading.frame.midY)) { return true }
+            if right { app.swipeRight() } else { app.swipeLeft() }
+            Thread.sleep(forTimeInterval: 0.7)
+        }
+        return false
     }
 
     private func showChrome() {

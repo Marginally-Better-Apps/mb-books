@@ -112,6 +112,8 @@ final class ReaderModel {
     var palette: ThemePalette { preferences.theme.palette(dark: isDarkAppearance) }
     var isFixedLayout: Bool { publication.layout != .reflowable }
     var isScrollMode: Bool { preferences.pageTurn == .scroll && !isFixedLayout }
+    /// The page turn in use: fixed layouts can't scroll, so they slide instead.
+    var effectivePageTurn: PageTurnStyle { isFixedLayout && preferences.pageTurn == .scroll ? .slide : preferences.pageTurn }
     var chapterTitle: String? { publication.chapterTitle(forSpineIndex: location.spineIndex) }
 
     var progressPercent: Int { Int((location.totalProgression * 100).rounded()) }

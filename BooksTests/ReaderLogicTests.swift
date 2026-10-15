@@ -117,6 +117,40 @@ final class ReaderLogicTests: XCTestCase {
         }
     }
 
+    func testPageTurnsCompleteOnFlicksOrPastHalfway() {
+        XCTAssertTrue(PageTurnPhysics.shouldComplete(progress: 0.05, velocity: 2), "A quick flick turns even a barely moved page")
+        XCTAssertFalse(PageTurnPhysics.shouldComplete(progress: 0.9, velocity: -2), "Flicking back cancels")
+        XCTAssertTrue(PageTurnPhysics.shouldComplete(progress: 0.6, velocity: 0))
+        XCTAssertFalse(PageTurnPhysics.shouldComplete(progress: 0.3, velocity: 0))
+        XCTAssertTrue(PageTurnPhysics.shouldComplete(progress: 0.45, velocity: 0.5), "A slow release is projected forward")
+        XCTAssertFalse(PageTurnPhysics.shouldComplete(progress: 0.55, velocity: -0.5))
+    }
+
+    func testRubberBandResistsAndKeepsDirection() {
+        XCTAssertEqual(PageTurnPhysics.rubberBand(0, dimension: 400), 0)
+        let pulled = PageTurnPhysics.rubberBand(200, dimension: 400)
+        XCTAssertGreaterThan(pulled, 0)
+        XCTAssertLessThan(pulled, 100, "Pulling past the last page moves the page much less than the finger")
+        XCTAssertEqual(PageTurnPhysics.rubberBand(-200, dimension: 400), -pulled, accuracy: 1e-9)
+        XCTAssertLessThan(PageTurnPhysics.rubberBand(10_000, dimension: 400), 400)
+    }
+
+    func testSettleSpringCarriesTheFingersSpeed() {
+        let flick = PageTurnPhysics.settleTiming(distance: 0.5, velocity: 3)
+        XCTAssertEqual(flick.initialVelocity.dx, 6, accuracy: 1e-9, "Velocity is relative to the distance left")
+        XCTAssertEqual(PageTurnPhysics.settleTiming(distance: 0.5, velocity: 100).initialVelocity.dx, 30, "Extreme flicks are capped")
+        XCTAssertEqual(PageTurnPhysics.settleTiming(distance: 0, velocity: 3).initialVelocity.dx, 0)
+    }
+
+    func testPageTurnStylesFollowAppleBooksOrderAndPersist() throws {
+        XCTAssertEqual(PageTurnStyle.allCases, [.slide, .curl, .fade, .scroll])
+        var preferences = ReaderPreferences()
+        XCTAssertEqual(preferences.pageTurn, .slide)
+        preferences.pageTurn = .curl
+        let decoded = try JSONDecoder().decode(ReaderPreferences.self, from: JSONEncoder().encode(preferences))
+        XCTAssertEqual(decoded.pageTurn, .curl)
+    }
+
     func testSortKeysIgnoreLeadingArticles() {
         XCTAssertEqual(Book.sortKey("The Odyssey"), "odyssey")
         XCTAssertEqual(Book.sortKey("An Answer"), "answer")

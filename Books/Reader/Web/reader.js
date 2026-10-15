@@ -763,6 +763,15 @@
   } else {
     window.addEventListener('scroll', scheduleRelocate, { passive: true });
     window.addEventListener('resize', () => scheduleRelayout('resize'));
+    // Native page turns stay out of the way while text is selected.
+    let selectionActive = false;
+    document.addEventListener('selectionchange', () => {
+      const selected = window.getSelection();
+      const active = !!selected && !selected.isCollapsed;
+      if (active === selectionActive) return;
+      selectionActive = active;
+      post('selection', { active });
+    });
     // Styles go in before first paint; layout starts once the DOM exists.
     applyStyles();
   }
@@ -793,6 +802,12 @@
     setHighlights,
     selection,
     clearSelection() { const s = window.getSelection(); if (s) s.removeAllRanges(); },
+    /// Whether a tap at (x, y) belongs to the page (a link, control, or highlight) rather than turning it.
+    isInteractiveAt(x, y) {
+      const element = document.elementFromPoint(x, y);
+      if (element && element.closest && element.closest(`a, area, ${INTERACTIVE}`)) return true;
+      return !!highlightAt(x, y);
+    },
     find,
     cfiFor,
     resolveCFI: (cfi) => { const p = resolveCFI(cfi); return p ? cfiFor(p.node, p.offset) : null; },

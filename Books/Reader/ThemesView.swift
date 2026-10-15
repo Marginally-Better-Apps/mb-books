@@ -72,18 +72,20 @@ struct ThemesView: View {
 
             Menu {
                 Picker("Page Turn", selection: $model.preferences.pageTurn) {
-                    ForEach(PageTurnStyle.allCases) { style in
+                    // Fixed layouts always turn pages; rolls always scroll.
+                    ForEach(PageTurnStyle.allCases.filter { !model.isFixedLayout || $0 != .scroll }) { style in
                         Label(style.name, systemImage: style.systemImage).tag(style)
                     }
                 }
             } label: {
-                Image(systemName: model.preferences.pageTurn.systemImage)
+                Image(systemName: model.effectivePageTurn.systemImage)
                     .font(.system(size: 17, weight: .medium))
                     .frame(width: 52, height: 44)
             }
             .glassEffect(.regular.interactive(), in: .capsule)
-            .disabled(model.isFixedLayout)
+            .disabled(model.publication.layout == .roll)
             .accessibilityLabel("Page Turn")
+            .accessibilityIdentifier("themes.pageTurn")
 
             Menu {
                 Picker("Appearance", selection: $appearance) {

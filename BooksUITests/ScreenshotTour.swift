@@ -139,4 +139,45 @@ final class ScreenshotTour: XCTestCase {
         sleep(2)
         save("16-reader-dark")
     }
+
+    /// Drags pages slowly, cancels a turn, and flicks, in each style, for screen recordings of page turns.
+    func testPageTurnTour() throws {
+        guard ProcessInfo.processInfo.environment["MB_TOUR_OUTPUT"] != nil else {
+            throw XCTSkip("Set MB_TOUR_OUTPUT to run the screenshot tour.")
+        }
+        let app = XCUIApplication()
+        app.launchArguments = ["-ui-testing", "-seed-sample-book"]
+        app.launch()
+        app.tabBars.buttons["Library"].tap()
+        let book = app.buttons["book.The Sample Voyage"]
+        XCTAssertTrue(book.waitForExistence(timeout: 15))
+        book.tap()
+        sleep(2)
+        func point(_ x: CGFloat) -> XCUICoordinate { app.coordinate(withNormalizedOffset: CGVector(dx: x, dy: 0.5)) }
+        for style in ["Slide", "Curl", "Fast Fade"] {
+            if !app.buttons["reader.menu"].exists { point(0.5).tap() }
+            app.buttons["reader.menu"].tap()
+            app.buttons["reader.menu.themes"].tap()
+            app.buttons["themes.pageTurn"].tap()
+            app.buttons[style].firstMatch.tap()
+            app.buttons["Done"].firstMatch.tap()
+            sleep(1)
+            // A slow drag held at the middle of the page, then released.
+            point(0.9).press(forDuration: 0.1, thenDragTo: point(0.45), withVelocity: 300, thenHoldForDuration: 1)
+            sleep(1)
+            // A short drag released slowly: the page should fall back.
+            point(0.9).press(forDuration: 0.1, thenDragTo: point(0.75), withVelocity: 200, thenHoldForDuration: 0.5)
+            sleep(1)
+            // Quick flicks forward and back.
+            for _ in 0..<3 { app.swipeLeft(velocity: .fast) }
+            sleep(1)
+            app.swipeRight(velocity: .fast)
+            sleep(1)
+            // Taps on the edge.
+            point(0.95).tap()
+            sleep(1)
+            point(0.05).tap()
+            sleep(1)
+        }
+    }
 }
