@@ -51,8 +51,10 @@ final class LibraryFlowTests: XCTestCase {
         app.buttons["reader.menu.themes"].tap()
         let calm = app.buttons["theme.calm"]
         XCTAssertTrue(calm.waitForExistence(timeout: 5))
+        // Slow simulators can still be sliding the sheet up; a tap then lands nowhere.
+        XCTAssertTrue(wait(for: calm, toMatch: "isHittable == true"))
         calm.tap()
-        XCTAssertTrue(calm.isSelected)
+        XCTAssertTrue(wait(for: calm, toMatch: "isSelected == true"), "Tapping a theme should select it")
         app.buttons["themes.increaseFont"].tap()
         app.buttons["themes.customize"].tap()
         XCTAssertTrue(app.switches["Bold Text"].waitForExistence(timeout: 5))
@@ -160,6 +162,11 @@ final class LibraryFlowTests: XCTestCase {
             Thread.sleep(forTimeInterval: 0.7)
         }
         return false
+    }
+
+    private func wait(for element: XCUIElement, toMatch format: String, timeout: TimeInterval = 10) -> Bool {
+        let expectation = XCTNSPredicateExpectation(predicate: NSPredicate(format: format), object: element)
+        return XCTWaiter().wait(for: [expectation], timeout: timeout) == .completed
     }
 
     private func showChrome() {
