@@ -75,8 +75,6 @@ final class ListeningSession {
     private var backend: SpeechBackend?
     private var pageTurnTask: Task<Void, Never>?
     private var pendingBreak: (offset: Int, page: Int)?
-    /// Relocations before this time were caused by following, not by the reader.
-    private var navigationGrace = Date.distantPast
     private var observers: [NSObjectProtocol] = []
     private var commandTargets: [(MPRemoteCommand, Any)] = []
     private var startedAt = Date()
@@ -295,18 +293,16 @@ final class ListeningSession {
         if let utterance = currentUtterance { follow(utterance, duration: nil) }
     }
 
-    /// The reader's page changed. If listening didn't cause it, the reader is browsing; stop following.
-    func readerDidRelocate() {
-        guard isActive, Date.now > navigationGrace, state != .loading else { return }
+    /// The reader turned or jumped to another page themselves: they're browsing, so stop following until asked.
+    func readerWasNavigated() {
+        guard isActive, state != .loading else { return }
         isFollowing = false
         pageTurnTask?.cancel()
+        pendingBreak = nil
     }
 
     // MARK: - Following along
 
-    private func expectNavigation() {
-        navigationGrace = Date.now.addingTimeInterval(1.5)
-    }
 
     private func follow(_ utterance: SpeechUtterance, duration: TimeInterval?) {
         pageTurnTask?.cancel()
@@ -314,28 +310,24 @@ final class ListeningSession {
         guard preferences.followsAlong, let reader else { return }
         guard let start = utterance.start, let end = utterance.end else {
             if isFollowing {
-                expectNavigation()
                 reader.showSpineItem(utterance.spineIndex)
             }
             return
         }
         let following = isFollowing
         pageTurnTask = Task {
-            if following { expectNavigation() }
             guard let mark = await reader.markSpeech(
                 spineIndex: utterance.spineIndex, start: start, end: end, word: nil, reveal: following),
                 !Task.isCancelled, isFollowing
             else { return }
             if let visible = mark.visible {
                 if !visible, let y = mark.y {
-                    expectNavigation()
                     reader.scrollSpeech(to: y)
                 }
                 return
             }
             guard let startPage = mark.startPage, let current = mark.currentPage else { return }
             if startPage != current {
-                expectNavigation()
                 reader.showSpeechPage(startPage)
             }
             guard let breakOffset = mark.breakOffset, let endPage = mark.endPage, endPage != startPage else { return }
@@ -344,7 +336,6 @@ final class ListeningSession {
                 let fraction = Double(breakOffset - start) / Double(max(1, end - start))
                 try? await Task.sleep(for: .seconds(duration * fraction))
                 guard !Task.isCancelled, isFollowing, state == .playing else { return }
-                expectNavigation()
                 reader.showSpeechPage(endPage)
             } else {
                 pendingBreak = (breakOffset, endPage)
@@ -367,10 +358,16 @@ final class ListeningSession {
             info[MPNowPlayingInfoPropertyPlaybackProgress] = Double(index) / Double(chapter.utterances.count)
         }
         if let coverImage {
-            info[MPMediaItemPropertyArtwork] = MPMediaItemArtwork(boundsSize: coverImage.size) { _ in coverImage }
+            info[MPMediaItemPropertyArtwork] = Self.artwork(coverImage)
         }
         MPNowPlayingInfoCenter.default().nowPlayingInfo = info
         MPNowPlayingInfoCenter.default().playbackState = state == .playing ? .playing : .paused
+    }
+
+    /// MediaPlayer asks for artwork on its own queue, so the handler must not be tied to the main actor.
+    nonisolated private static func artwork(_ image: UIImage) -> MPMediaItemArtwork {
+        let handler: @Sendable (CGSize) -> UIImage = { _ in image }
+        return MPMediaItemArtwork(boundsSize: image.size, requestHandler: handler)
     }
 
     private func installRemoteCommands() {
@@ -378,11 +375,14 @@ final class ListeningSession {
         let center = MPRemoteCommandCenter.shared()
         func add(_ command: MPRemoteCommand, _ action: @escaping @MainActor (ListeningSession) -> Void) {
             command.isEnabled = true
-            let target = command.addTarget { [weak self] _ in
-                guard let self else { return .noActionableNowPlayingItem }
-                MainActor.assumeIsolated { action(self) }
+            let handler: @Sendable (MPRemoteCommandEvent) -> MPRemoteCommandHandlerStatus = { [weak self] _ in
+                Task { @MainActor in
+                    guard let self else { return }
+                    action(self)
+                }
                 return .success
             }
+            let target = command.addTarget(handler: handler)
             commandTargets.append((command, target))
         }
         add(center.playCommand) { $0.resume() }
@@ -462,7 +462,6 @@ extension ListeningSession: SpeechBackendDelegate {
         }
         if let pending = pendingBreak, wordStart >= pending.offset, isFollowing {
             pendingBreak = nil
-            expectNavigation()
             reader?.showSpeechPage(pending.page)
         }
     }

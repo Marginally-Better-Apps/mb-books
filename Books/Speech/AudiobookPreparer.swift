@@ -212,8 +212,8 @@ final class AudiobookPreparer {
         backgroundTask = task
         task.progress.totalUnitCount = 1000
         task.progress.completedUnitCount = Int64((activeJob?.fraction ?? 0) * 1000)
-        task.expirationHandler = { [weak self] in
-            MainActor.assumeIsolated {
+        task.expirationHandler = { @Sendable [weak self] in
+            DispatchQueue.main.async {
                 guard let self else { return }
                 // iOS needs the time back; pause, keeping everything rendered so far.
                 if let active = self.activeJob { self.pause(bookID: active.id) }

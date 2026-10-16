@@ -65,6 +65,8 @@ final class ReaderViewController: UIViewController {
     /// A tap that arrived while a turn couldn't be cut short; it runs when that turn ends.
     private var queuedTurn: PageTurn.Side?
     private var hasSelection = false
+    /// Set while listening turns the page, so the turn isn't taken for the reader browsing.
+    private var isSpeechNavigation = false
 
     init(model: ReaderModel) {
         self.model = model
@@ -851,6 +853,7 @@ final class ReaderViewController: UIViewController {
 
     /// In scroll mode, pulling past the top or bottom of a chapter moves to the adjacent one.
     @objc private func handleScrollPan(_ gesture: UIPanGestureRecognizer) {
+        if gesture.state == .began, model.isScrollMode { model.userDidNavigate() }
         guard gesture.state == .ended, model.isScrollMode, gesture.view === current.webView.scrollView,
               current.isSettled, case .reflowable = current.document
         else { return }
@@ -907,6 +910,7 @@ extension ReaderViewController: PageTurnDataSource {
 
     func pageTurn(toward side: PageTurn.Side) -> PageTurn? {
         guard current.isSettled, let document = current.document, document != .roll else { return nil }
+        if !isSpeechNavigation { model.userDidNavigate() }
         model.popover = nil
         model.hideChrome()
         let forward = side == .left || side == .right ? (side == .right) != isRTLProgression : side == .bottom
@@ -1037,7 +1041,9 @@ extension ReaderViewController: SpeechFollowing {
         if page == currentPage + 1 || page == currentPage - 1 {
             // Turn like the reader would, with the page-turn animation.
             let forward = page > currentPage
+            isSpeechNavigation = true
             turn(toward: forward != isRTLProgression ? .right : .left)
+            isSpeechNavigation = false
         } else if page != currentPage {
             let chapter = current!
             Task {

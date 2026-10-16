@@ -107,34 +107,43 @@ final class SystemSpeechBackend: NSObject, SpeechBackend {
 }
 
 extension SystemSpeechBackend: AVSpeechSynthesizerDelegate {
+    // AVSpeechSynthesizer doesn't promise which thread it calls back on; hop to the main queue in order.
     nonisolated func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer, didStart utterance: AVSpeechUtterance) {
         let id = ObjectIdentifier(utterance)
-        MainActor.assumeIsolated {
-            guard let index = queued[id] else { return }
-            currentIndex = index
-            delegate?.backend(didStart: index, duration: nil)
-            enqueue()
+        onMain {
+            guard let index = self.queued[id] else { return }
+            self.currentIndex = index
+            self.delegate?.backend(didStart: index, duration: nil)
+            self.enqueue()
         }
     }
 
     nonisolated func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer, willSpeakRangeOfSpeechString characterRange: NSRange,
                                        utterance: AVSpeechUtterance) {
         let id = ObjectIdentifier(utterance)
-        MainActor.assumeIsolated {
-            guard let index = queued[id] else { return }
-            delegate?.backend(willSpeakWord: characterRange, in: index)
+        onMain {
+            guard let index = self.queued[id] else { return }
+            self.delegate?.backend(willSpeakWord: characterRange, in: index)
         }
     }
 
     nonisolated func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer, didFinish utterance: AVSpeechUtterance) {
         let id = ObjectIdentifier(utterance)
-        MainActor.assumeIsolated {
-            guard let index = queued.removeValue(forKey: id) else { return }
-            if index == utterances.count - 1, nextToQueue >= utterances.count {
-                isPlaying = false
-                delegate?.backendDidFinish()
+        onMain {
+            guard let index = self.queued.removeValue(forKey: id) else { return }
+            if index == self.utterances.count - 1, self.nextToQueue >= self.utterances.count {
+                self.isPlaying = false
+                self.delegate?.backendDidFinish()
             }
         }
+    }
+}
+
+private nonisolated func onMain(_ work: @escaping @MainActor @Sendable () -> Void) {
+    if Thread.isMainThread {
+        MainActor.assumeIsolated(work)
+    } else {
+        DispatchQueue.main.async { MainActor.assumeIsolated(work) }
     }
 }
 
@@ -307,7 +316,8 @@ final class NeuralSpeechBackend: SpeechBackend {
             setWaiting(false)
             delegate?.backend(didStart: index, duration: durations[index].map { $0 / rate })
         }
-        player.scheduleBuffer(padded, completionCallbackType: .dataPlayedBack) { [weak self] _ in
+        // Called on an audio thread.
+        let completion: @Sendable (AVAudioPlayerNodeCompletionCallbackType) -> Void = { [weak self] _ in
             Task { @MainActor in
                 guard let self, generation == self.generation else { return }
                 self.scheduledAhead -= 1
@@ -318,6 +328,7 @@ final class NeuralSpeechBackend: SpeechBackend {
                 self.fill()
             }
         }
+        player.scheduleBuffer(padded, completionCallbackType: .dataPlayedBack, completionHandler: completion)
         if !isPaused, !player.isPlaying { player.play() }
     }
 

@@ -146,6 +146,7 @@ final class ReaderModel {
     // MARK: - Navigation
 
     func go(to locator: Locator) {
+        userDidNavigate()
         navigator?.go(to: locator, animated: false)
     }
 
@@ -182,7 +183,6 @@ final class ReaderModel {
         location = updated
         self.page = page
         self.pageCount = max(1, pageCount)
-        listening?.readerDidRelocate()
         book.location = updated
         book.progress = updated.totalProgression
         book.lastOpened = .now
@@ -202,6 +202,11 @@ final class ReaderModel {
         listening = session
         navigator?.clearSelection()
         Task { await session.start(fromSelection: fromSelection) }
+    }
+
+    /// The reader moved to another page themselves (not the narration following along).
+    func userDidNavigate() {
+        listening?.readerWasNavigated()
     }
 
     func stopListening() {
@@ -330,6 +335,7 @@ final class ReaderModel {
 
     func show(_ result: BookSearchResult) {
         sheet = nil
+        userDidNavigate()
         navigator?.show(result)
     }
 

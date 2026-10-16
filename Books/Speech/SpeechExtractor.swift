@@ -196,6 +196,10 @@ nonisolated struct SpeechExtractor {
                 continue
             }
             if upper.contains("*** END OF") { break }
+            if text.range(of: #"(?i)\bebook\s*\[?\s*#\s*\d+|gutenberg\.org"#, options: .regularExpression) != nil {
+                omissions.append(.init(reason: .boilerplate, text: String(text.prefix(80))))
+                continue
+            }
             if inGutenbergHeader {
                 omissions.append(.init(reason: .boilerplate, text: String(text.prefix(80))))
                 continue
@@ -386,8 +390,9 @@ private nonisolated struct Walker {
 
         switch name {
         case "br":
-            // A line break inside a heading ("Chapter 1<br/>The Beginning") is a pause.
-            if headingDepth > 0, let last = current.characters.last, !".:!?—".contains(last) {
+            // A break after a label in a heading ("Chapter 1<br/>The Beginning") is a pause; a heading set on
+            // several lines ("PRIDE<br/>and<br/>PREJUDICE") just continues.
+            if headingDepth > 0, Self.endsWithHeadingLabel(current.string) {
                 current.appendSynthetic(". ", at: offset)
             } else {
                 current.appendSynthetic(" ", at: offset)
@@ -535,6 +540,36 @@ private nonisolated struct Walker {
 
         // Navigation, indexes, and duplicated text.
         if name == "nav" { return .navigation }
+        // A block that is mostly links is a table of contents inside a chapter, as Project Gutenberg books have.
+        if Self.listBlocks.contains(name), Self.isLinkList(element) { return .tableOfContents }
+        if let level = Self.headingLevel(element, name: name), level > 0,
+           ["contents", "table of contents", "list of illustrations", "illustrations"].contains(
+               element.normalizedText.lowercased().trimmingCharacters(in: .punctuationCharacters)) {
+            return .tableOfContents
+        }
+
+        // Illustrations: figures and their captions, which would otherwise interrupt the text.
+        if name == "figure" || name == "figcaption" || types.contains("figure") || types.contains("doc-figure") {
+            return .illustration
+        }
+        if ["div", "table", "aside", "p", "span"].contains(name),
+           classText.range(of: #"\b(?:fig[a-z]*|illus[a-z]*|caption|image|img|picture|plate)\b"#, options: .regularExpression) != nil,
+           Self.shortText(element, limit: 600) != nil {
+            return .illustration
+        }
+        if ["div", "table"].contains(name), Self.containsImage(element), Self.shortText(element, limit: 300) != nil,
+           element.firstDescendant(named: "h1") == nil, element.firstDescendant(named: "h2") == nil {
+            return .illustration
+        }
+        // Code listings don't make sense read aloud; inline code like `Vec` stays in its sentence.
+        if name == "pre" || (name == "div" && classText.range(of: #"\b(?:code|listing|highlight|sourcecode|programlisting)\b"#,
+                                                               options: .regularExpression) != nil) {
+            return .code
+        }
+        // Notes from whoever digitized the book.
+        if classText.range(of: #"\b(?:transnote|tnote|transcriber[a-z-]*|pg-boilerplate)\b"#, options: .regularExpression) != nil {
+            return .boilerplate
+        }
         if !types.isDisjoint(with: Self.navigationTypes) { return types.contains("index") || types.contains("doc-index") ? .index : .navigation }
         if types.contains("pullquote") || types.contains("doc-pullquote") || classText.contains("pullquote")
             || classText.contains("pull-quote") {
@@ -542,6 +577,44 @@ private nonisolated struct Walker {
         }
         if name == "rt" || name == "rp" { return .annotation }
         return nil
+    }
+
+    static func containsImage(_ element: MarkupElement) -> Bool {
+        element.firstDescendant(named: "img") != nil || element.firstDescendant(named: "image") != nil
+            || element.firstDescendant(named: "svg") != nil
+    }
+
+    /// Whether the heading text so far ends in a label like "Chapter 1", "Part IV", or "12".
+    static func endsWithHeadingLabel(_ text: String) -> Bool {
+        let line = text.trimmingCharacters(in: .whitespaces)
+        guard let last = line.last, !".:!?—,;".contains(last) else { return false }
+        return line.range(of: #"(?:^|\s)(?:chapter|part|book|section|act|scene|canto|volume|letter|stave)\s+[\divxlcdm]+$|^[\divxlcdm]+$"#,
+                          options: [.regularExpression, .caseInsensitive]) != nil
+    }
+
+    private static let listBlocks: Set<String> = ["p", "div", "ul", "ol", "dl", "table", "section", "blockquote", "li"]
+
+    /// Four or more links that make up most of the block's text.
+    static func isLinkList(_ element: MarkupElement) -> Bool {
+        var links = 0
+        var linked = 0
+        var total = 0
+        func walk(_ element: MarkupElement, inLink: Bool) {
+            let isLink = element.name == "a" && element.attribute("href") != nil
+            if isLink { links += 1 }
+            for child in element.children {
+                switch child {
+                case .text(let text):
+                    let letters = text.unicodeScalars.filter { CharacterSet.alphanumerics.contains($0) }.count
+                    total += letters
+                    if inLink || isLink { linked += letters }
+                case .element(let child):
+                    if !unrendered.contains(child.name) { walk(child, inLink: inLink || isLink) }
+                }
+            }
+        }
+        walk(element, inLink: false)
+        return links >= 4 && total > 0 && Double(linked) / Double(total) >= 0.65
     }
 
     /// The ID of an anchor at the very start of a block, as in `<p><a id="fn1"/>1. A note.</p>`.

@@ -126,7 +126,7 @@ final class NeuralVoiceStore {
     }
 }
 
-private final class DownloadProgress: NSObject, URLSessionTaskDelegate, @unchecked Sendable {
+private nonisolated final class DownloadProgress: NSObject, URLSessionTaskDelegate, @unchecked Sendable {
     let expected: Int64
     let handler: @Sendable (Double) -> Void
     private var observation: NSKeyValueObservation?

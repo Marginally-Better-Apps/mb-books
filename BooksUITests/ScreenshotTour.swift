@@ -187,6 +187,43 @@ final class ScreenshotTour: XCTestCase {
         save("09-return")
     }
 
+    /// Starts listening to real books (with covers, front matter, and notes) and checks the app keeps running.
+    /// Needs `MB_LISTEN_DIR`, a folder of `.epub` files.
+    func testListenToImportedBooks() throws {
+        let environment = ProcessInfo.processInfo.environment
+        guard let books = environment["MB_LISTEN_DIR"] else { throw XCTSkip("Set MB_LISTEN_DIR to run.") }
+        let output = environment["MB_TOUR_OUTPUT"].map { URL(filePath: $0) }
+        if let output { try FileManager.default.createDirectory(at: output, withIntermediateDirectories: true) }
+        let app = XCUIApplication()
+        app.launchArguments = ["-ui-testing", "-import-directory", books]
+        if let models = environment["MB_VOICE_MODEL_DIR"] { app.launchEnvironment["MB_VOICE_MODEL_DIR"] = models }
+        app.launch()
+        app.tabBars.buttons["Library"].tap()
+        let book = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'book.'")).firstMatch
+        XCTAssertTrue(book.waitForExistence(timeout: 60))
+        book.tap()
+        sleep(3)
+        for _ in 0..<3 where !app.buttons["reader.listen"].exists {
+            app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+            _ = app.buttons["reader.listen"].waitForExistence(timeout: 3)
+        }
+        app.buttons["reader.listen"].tap()
+        for second in 0..<5 {
+            sleep(2)
+            XCTAssertEqual(app.state, .runningForeground, "The app keeps running while listening")
+            if let output {
+                try? XCUIScreen.main.screenshot().pngRepresentation.write(to: output.appending(path: "i-\(second).png"))
+            }
+        }
+        XCTAssertTrue(app.buttons["listen.playPause"].exists || app.buttons["listen.pill"].exists)
+        // Back home, the Continue shelf shows the book with progress as wide as its cover.
+        if !app.buttons["reader.close"].exists { app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap() }
+        app.buttons["reader.close"].tap()
+        app.tabBars.buttons["Home"].tap()
+        sleep(2)
+        if let output { try? XCUIScreen.main.screenshot().pngRepresentation.write(to: output.appending(path: "i-home.png")) }
+    }
+
     /// Listens with the Studio voice. Needs `MB_VOICE_MODEL_DIR`: a folder with `model.onnx` and `voices/af_heart.bin`.
     func testStudioTour() throws {
         let environment = ProcessInfo.processInfo.environment

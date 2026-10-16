@@ -77,6 +77,8 @@ nonisolated enum SpeechSkipReason: String, Codable, Hashable, Sendable, CaseIter
     case pullQuote
     case runningHead
     case annotation
+    case illustration
+    case code
     case empty
 
     var title: String {
@@ -98,6 +100,8 @@ nonisolated enum SpeechSkipReason: String, Codable, Hashable, Sendable, CaseIter
         case .pullQuote: String(localized: "Pull quote")
         case .runningHead: String(localized: "Running head")
         case .annotation: String(localized: "Pronunciation guide")
+        case .illustration: String(localized: "Illustration caption")
+        case .code: String(localized: "Code listing")
         case .empty: String(localized: "No text")
         }
     }

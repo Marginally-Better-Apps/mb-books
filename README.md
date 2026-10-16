@@ -33,7 +33,10 @@ Nothing you read leaves the device. Every component is permissively licensed (Ap
 | Note markers and notes | `noteref`, short linked markers like `12`, `*`, or `[3]`, superscript markers, `footnote` and `endnote` asides, the notes they point to, and trailing "Notes" sections |
 | Running heads | Short lines repeated through a chapter that name the book or author |
 | Hidden or duplicated text | `hidden`, `aria-hidden`, inline and stylesheet `display: none`, pull quotes, ruby annotations |
-| Project Gutenberg license text | The `*** START`/`*** END` markers and license documents |
+| Tables of contents inside chapters | Blocks that are mostly links, and "Contents" headings |
+| Illustrations and their captions | `figure`, `role="figure"`, figure and caption classes, and short blocks around an image |
+| Code listings | `<pre>` and code-listing blocks; inline code stays in its sentence |
+| Project Gutenberg license text and transcriber's notes | The `*** START`/`*** END` markers, license documents, eBook-number lines, and transcriber-note classes |
 
 Headings get longer pauses and read "Chapter IV" as "Chapter 4"; scene-break ornaments become pauses; soft hyphens, ligatures, URL paths, and inline markers like `¹` are cleaned up; language changes inside a paragraph switch voices. Pages that are only images (scans and image-based fixed layouts) are read with on-device OCR (Vision), which drops folios and running heads in the margins, orders two-column pages, and rejoins words hyphenated across lines.
 

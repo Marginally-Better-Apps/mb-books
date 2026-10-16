@@ -123,6 +123,52 @@ final class SpeechExtractionTests: XCTestCase {
         XCTAssertEqual(extract(index).skipReason, .index)
     }
 
+    func testSkipsTablesOfContentsInsideChapters() {
+        let links = ["I.", "II.", "III.", "IV.", "V."].enumerated()
+            .map { "<a href=\"c\($0.offset).xhtml\">\($0.element)</a>" }.joined(separator: ", ")
+        let chapter = extract("""
+            <h1>Pride and Prejudice</h1>
+            <div class="toc"><p><a href="preface.xhtml">PREFACE.</a><br/>Chapter: \(links)</p></div>
+            <p>It is a truth universally acknowledged. See <a href="#n">the note</a>, <a href="#m">this</a>.</p>
+            """)
+        XCTAssertEqual(texts(chapter), ["Pride and Prejudice", "It is a truth universally acknowledged.", "See the note, this."])
+        XCTAssertTrue(chapter.omissions.contains { $0.reason == .tableOfContents })
+    }
+
+    func testSkipsIllustrationsAndTheirCaptions() {
+        let chapter = extract("""
+            <p>Before the picture.</p>
+            <div class="figcenter" role="figure"><img src="a.jpg" alt=""/>
+              <div class="caption"><p>“No, no; stay where you are”</p><p>[Copyright 1894.]</p></div></div>
+            <figure><img src="b.jpg" alt=""/><figcaption>Figure 2: A map.</figcaption></figure>
+            <table><tr><td>Ruskin House.</td><td><img src="p.png" alt=""/></td><td>156. Charing Cross Road.</td></tr></table>
+            <p class="transnote">Transcriber's note: spelling kept.</p>
+            <p>After the picture.</p>
+            """)
+        XCTAssertEqual(texts(chapter), ["Before the picture.", "After the picture."])
+        XCTAssertTrue(chapter.omissions.contains { $0.reason == .illustration })
+    }
+
+    func testSkipsCodeListingsButKeepsInlineCode() {
+        let chapter = extract("""
+            <p>Call <code>print_line</code> to print.</p>
+            <pre><code>fn main() {
+                println!("Hello, world!");
+            }</code></pre>
+            <div class="highlight"><span>x = 1</span></div>
+            <p>That prints a greeting.</p>
+            """)
+        XCTAssertEqual(texts(chapter), ["Call print_line to print.", "That prints a greeting."])
+        XCTAssertEqual(chapter.omissions.filter { $0.reason == .code }.count, 2)
+    }
+
+    func testHeadingLinesJoinUnlessAfterALabel() {
+        XCTAssertEqual(texts(extract("<h1><img src=\"f.png\" alt=\"\"/><br/><br/><i>PRIDE.<br/>and<br/>PREJUDICE</i></h1><p>Text.</p>")).first,
+                       "PRIDE. and PREJUDICE")
+        XCTAssertEqual(texts(extract("<h2>Part IV<br/>The Return</h2><p>Text.</p>")).first, "Part 4. The Return")
+        XCTAssertEqual(texts(extract("<h2>Contents</h2><p>Text.</p>")), ["Text."])
+    }
+
     func testStripsProjectGutenbergWrapper() {
         let chapter = extract("""
             <p>The Project Gutenberg eBook of A Tale</p>
@@ -284,7 +330,8 @@ final class PronunciationTests: XCTestCase {
     }()
 
     /// Expected output from misaki (hexgrad/misaki@fba1236) for the same text, except where noted.
-    func testMatchesMisaki() {
+    func testMatchesMisaki() throws {
+        guard EnglishG2P.hasTagger else { throw XCTSkip("This simulator has no English part-of-speech model") }
         let cases = [
             ("It was the best of times, it was the worst of times.",
              "ˌɪt wʌz ðə bˈɛst ʌv tˈImz, ɪt wʌz ðə wˈɜɹst ʌv tˈImz."),
@@ -311,7 +358,20 @@ final class PronunciationTests: XCTestCase {
         }
     }
 
-    func testPastTenseReadFromContext() {
+    /// Without Apple's tagger, closed word classes and context still pick the right pronunciations.
+    func testPronouncesFunctionWordsWithoutTheTagger() throws {
+        let bundle = Bundle(for: EnglishG2P.self)
+        let g2p = try EnglishG2P.load(
+            gold: XCTUnwrap(bundle.url(forResource: "us_gold", withExtension: "json")),
+            silver: XCTUnwrap(bundle.url(forResource: "us_silver", withExtension: "json")), fallback: nil)
+        g2p.usesTagger = false
+        XCTAssertEqual(g2p.phonemize("I will record a song in the studio."), "ˌI wɪl ɹəkˈɔɹd ɐ sˈɔŋ ɪn ðə stˈudiO.")
+        XCTAssertEqual(g2p.phonemize("The record is in."), "ðə ɹˈɛkəɹd ɪz ˈɪn.")
+        XCTAssertTrue(g2p.phonemize("She had read the letter.").contains("ɹˈɛd"))
+    }
+
+    func testPastTenseReadFromContext() throws {
+        guard EnglishG2P.hasTagger else { throw XCTSkip("This simulator has no English part-of-speech model") }
         XCTAssertTrue(Self.g2p.phonemize("She had read the letter.").contains("ɹˈɛd"))
         XCTAssertTrue(Self.g2p.phonemize("She read the book yesterday.").contains("ɹˈɛd"))
         XCTAssertTrue(Self.g2p.phonemize("She will read the book.").contains("ɹˈid"))
@@ -432,5 +492,35 @@ final class KokoroIntegrationTests: XCTestCase {
             let file = try AVAudioFile(forWriting: URL(filePath: output), settings: format.settings)
             try file.write(from: XCTUnwrap(AudiobookStore.buffer(samples, format: format)))
         }
+    }
+}
+
+/// Writes what would be read from real books, for reviewing the extraction rules. Skipped unless
+/// `TEST_RUNNER_MB_LISTEN_DIR` is a folder of `.epub` files; the report goes to `TEST_RUNNER_MB_SPEECH_REPORT`.
+final class SpeechReportTests: XCTestCase {
+    func testReportWhatIsRead() async throws {
+        let environment = ProcessInfo.processInfo.environment
+        guard let directory = environment["MB_LISTEN_DIR"], let report = environment["MB_SPEECH_REPORT"] else {
+            throw XCTSkip("Set TEST_RUNNER_MB_LISTEN_DIR and TEST_RUNNER_MB_SPEECH_REPORT to run")
+        }
+        var lines: [String] = []
+        for file in try FileManager.default.contentsOfDirectory(atPath: directory).sorted() where file.hasSuffix(".epub") {
+            let archive = try ZipArchive(url: URL(filePath: directory).appending(path: file))
+            let content = try Fixtures.temporaryDirectory()
+            try archive.extractAll(to: content)
+            let container = DirectoryContainer(root: content)
+            let publication = try EPUBParser.parse(container)
+            let provider = SpeechScriptProvider(publication: publication, container: container, folder: try Fixtures.temporaryDirectory())
+            let script = await provider.script()
+            lines.append("# \(file): \(publication.metadata.title)")
+            for chapter in script.chapters {
+                let omitted = Dictionary(grouping: chapter.omissions, by: \.reason).map { "\($0.key.rawValue)×\($0.value.count)" }.sorted()
+                lines.append("## [\(chapter.spineIndex)] \(chapter.skipReason.map { "SKIP \($0.rawValue)" } ?? "READ") "
+                             + "\(chapter.utterances.count) utterances; omitted \(omitted.joined(separator: " "))")
+                for utterance in chapter.utterances.prefix(4) { lines.append("    \(utterance.text.prefix(110))") }
+                for omission in chapter.omissions.prefix(3) { lines.append("    - \(omission.reason.rawValue): \(omission.text.prefix(80))") }
+            }
+        }
+        try lines.joined(separator: "\n").write(toFile: report, atomically: true, encoding: .utf8)
     }
 }

@@ -16,6 +16,8 @@ nonisolated final class EnglishG2P: @unchecked Sendable {
     private let golds: [String: Entry]
     private let silvers: [String: Entry]
     private let fallback: G2PFallback?
+    /// Whether to use Apple's part-of-speech tagger. Tests turn it off to check the rules used without it.
+    var usesTagger = true
 
     init(golds: [String: Entry], silvers: [String: Entry], fallback: G2PFallback?) {
         self.golds = golds
@@ -248,9 +250,10 @@ nonisolated final class EnglishG2P: @unchecked Sendable {
             return true
         }
         var sentenceStart = true
+        var previous: String?
         for index in tokens.indices {
             let token = tokens[index]
-            let tag = tags[ranges[index].location]
+            let tag = usesTagger ? tags[ranges[index].location] : nil
             let first = token.text.first
             if let first, !first.isLetter, !first.isNumber, first != "'", !"$£€".contains(first) {
                 tokens[index].isPunctuation = true
@@ -271,14 +274,55 @@ nonisolated final class EnglishG2P: @unchecked Sendable {
             case .number: mapped = "CD"
             case .particle: mapped = token.text.lowercased() == "to" ? "TO" : "RP"
             case .interjection: mapped = "UH"
-            default: mapped = first?.isNumber == true ? "CD" : "NN"
+            default: mapped = first?.isNumber == true ? "CD" : Self.guessTag(token.text.lowercased(), after: previous)
             }
             // Capitalized nouns mid-sentence are proper names.
             if mapped == "NN", let first, first.isUppercase, !sentenceStart { mapped = "NNP" }
             if token.text.lowercased() == "to", mapped == "IN" { mapped = "TO" }
             tokens[index].tag = mapped
+            previous = mapped
             sentenceStart = false
         }
+    }
+
+    /// Whether Apple's tagger has an English model on this device. It can be missing until language assets
+    /// download, so `guessTag` covers the words whose pronunciation depends on their role.
+    static var hasTagger: Bool {
+        let tagger = NLTagger(tagSchemes: [.lexicalClass])
+        let text = "The dog runs."
+        tagger.string = text
+        tagger.setLanguage(.english, range: text.startIndex..<text.endIndex)
+        return tagger.tag(at: text.startIndex, unit: .word, scheme: .lexicalClass).0 != nil
+    }
+
+    private static let determiners: Set<String> = [
+        "a", "an", "the", "this", "these", "those", "my", "your", "his", "her", "its", "our", "their", "some", "any",
+        "no", "every", "each", "another",
+    ]
+    private static let pronouns: Set<String> = ["i", "you", "he", "she", "it", "we", "they", "me", "him", "us", "them", "who"]
+    private static let prepositions: Set<String> = [
+        "in", "on", "at", "by", "for", "with", "from", "of", "into", "onto", "over", "under", "about", "after", "before",
+        "between", "through", "during", "without", "within", "among", "upon", "that", "than", "as",
+    ]
+    private static let conjunctions: Set<String> = ["and", "or", "but", "nor", "so", "yet", "because", "if", "while", "although"]
+    private static let auxiliaries: Set<String> = [
+        "will", "would", "can", "could", "shall", "should", "may", "might", "must", "do", "does", "did", "is", "are", "was",
+        "were", "be", "been", "am", "have", "has", "had", "'ll", "'d",
+    ]
+
+    /// A part of speech from closed word classes and the word before, for when there's no tagger.
+    static func guessTag(_ word: String, after previous: String?) -> String {
+        if determiners.contains(word) { return "DT" }
+        if pronouns.contains(word) { return "PRP" }
+        if word == "to" { return "TO" }
+        if prepositions.contains(word) { return "IN" }
+        if conjunctions.contains(word) { return "CC" }
+        if auxiliaries.contains(word) { return "VB" }
+        // After "will", "to", or a subject pronoun comes a verb; after "the" or "a", a noun.
+        if previous == "VB" || previous == "TO" || previous == "PRP" { return "VB" }
+        if previous == "DT" || previous == "JJ" { return "NN" }
+        if word.hasSuffix("ly") { return "RB" }
+        return "NN"
     }
 
     private func assignCurrency(_ tokens: inout [Token]) {
