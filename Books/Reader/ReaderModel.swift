@@ -2,6 +2,7 @@ import Foundation
 import Observation
 import SwiftData
 import SwiftUI
+import UIKit
 
 /// What the reader's rendering layer can do. Implemented by `ReaderViewController`.
 @MainActor
@@ -49,7 +50,7 @@ struct ReaderPopover: Identifiable {
 }
 
 enum ReaderSheet: String, Identifiable {
-    case contents, themes, search
+    case contents, themes, search, listen
     var id: String { rawValue }
 }
 
@@ -90,6 +91,10 @@ final class ReaderModel {
     var isSearching = false
 
     weak var navigator: ReaderNavigator?
+    /// Shows what's being read aloud; the same view controller as `navigator`.
+    weak var speechFollower: SpeechFollowing?
+    /// Reading aloud, once started.
+    private(set) var listening: ListeningSession?
     private var readingClock: Date?
 
     init(book: Book, publication: Publication, container: DirectoryContainer, context: ModelContext) {
@@ -177,11 +182,33 @@ final class ReaderModel {
         location = updated
         self.page = page
         self.pageCount = max(1, pageCount)
+        listening?.readerDidRelocate()
         book.location = updated
         book.progress = updated.totalProgression
         book.lastOpened = .now
         Task { await refreshBookmarkState() }
     }
+
+    // MARK: - Listening
+
+    /// Reads aloud from the page on screen, or from the start of the selection.
+    func startListening(fromSelection: Bool = false) {
+        let session = listening ?? ListeningSession(book: book, publication: publication, container: container)
+        session.reader = speechFollower
+        if session.coverImage == nil {
+            let cover = container.root.deletingLastPathComponent().appending(path: "cover.jpg")
+            session.coverImage = UIImage(contentsOfFile: cover.path)
+        }
+        listening = session
+        navigator?.clearSelection()
+        Task { await session.start(fromSelection: fromSelection) }
+    }
+
+    func stopListening() {
+        listening?.stop()
+    }
+
+    var isListening: Bool { listening?.isActive == true }
 
     // MARK: - Chrome
 
@@ -323,6 +350,7 @@ final class ReaderModel {
     }
 
     func close() {
+        stopListening()
         stopReadingClock()
         try? context.save()
     }

@@ -140,6 +140,90 @@ final class ScreenshotTour: XCTestCase {
         save("16-reader-dark")
     }
 
+    /// Captures listening: the controls, the highlight following along, and the listening options.
+    func testListenTour() throws {
+        let app = XCUIApplication()
+        guard let output = ProcessInfo.processInfo.environment["MB_TOUR_OUTPUT"] else {
+            throw XCTSkip("Set MB_TOUR_OUTPUT to run the screenshot tour.")
+        }
+        let outputURL = URL(filePath: output)
+        try FileManager.default.createDirectory(at: outputURL, withIntermediateDirectories: true)
+        func save(_ name: String) {
+            sleep(1)
+            try? XCUIScreen.main.screenshot().pngRepresentation.write(to: outputURL.appending(path: "l-\(name).png"))
+        }
+        app.launchArguments = ["-ui-testing", "-seed-sample-book"]
+        app.launch()
+        app.tabBars.buttons["Library"].tap()
+        let book = app.buttons["book.The Sample Voyage"]
+        XCTAssertTrue(book.waitForExistence(timeout: 15))
+        book.tap()
+        sleep(2)
+        app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+        save("01-chrome")
+        app.buttons["reader.listen"].tap()
+        sleep(3)
+        save("02-listening")
+        sleep(4)
+        save("03-following")
+        app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+        save("04-pill")
+        app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+        _ = app.buttons["listen.options"].waitForExistence(timeout: 3)
+        app.buttons["listen.options"].tap()
+        save("05-options")
+        app.buttons["listen.contents"].tap()
+        sleep(2)
+        save("06-whats-read")
+        app.navigationBars.buttons.element(boundBy: 0).tap()
+        app.buttons["Studio"].tap()
+        save("07-studio")
+        app.swipeUp()
+        save("08-studio-more")
+        app.buttons["listen.done"].tap()
+        app.swipeLeft()
+        sleep(2)
+        app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+        save("09-return")
+    }
+
+    /// Listens with the Studio voice. Needs `MB_VOICE_MODEL_DIR`: a folder with `model.onnx` and `voices/af_heart.bin`.
+    func testStudioTour() throws {
+        let environment = ProcessInfo.processInfo.environment
+        guard let output = environment["MB_TOUR_OUTPUT"], let models = environment["MB_VOICE_MODEL_DIR"] else {
+            throw XCTSkip("Set MB_TOUR_OUTPUT and MB_VOICE_MODEL_DIR to run the Studio tour.")
+        }
+        let outputURL = URL(filePath: output)
+        try FileManager.default.createDirectory(at: outputURL, withIntermediateDirectories: true)
+        func save(_ name: String) {
+            try? XCUIScreen.main.screenshot().pngRepresentation.write(to: outputURL.appending(path: "s-\(name).png"))
+        }
+        let app = XCUIApplication()
+        app.launchArguments = ["-ui-testing", "-seed-sample-book"]
+        app.launchEnvironment["MB_VOICE_MODEL_DIR"] = models
+        app.launch()
+        app.tabBars.buttons["Library"].tap()
+        let book = app.buttons["book.The Sample Voyage"]
+        XCTAssertTrue(book.waitForExistence(timeout: 15))
+        book.tap()
+        XCTAssertTrue(app.webViews.staticTexts["Departure"].waitForExistence(timeout: 30))
+        for _ in 0..<3 where !app.buttons["reader.listen"].exists {
+            app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+            _ = app.buttons["reader.listen"].waitForExistence(timeout: 3)
+        }
+        app.buttons["reader.listen"].tap()
+        XCTAssertTrue(app.buttons["listen.options"].waitForExistence(timeout: 10))
+        app.buttons["listen.options"].tap()
+        app.buttons["Studio"].tap()
+        sleep(1)
+        save("01-studio-options")
+        app.buttons["listen.done"].tap()
+        for second in 0..<8 {
+            sleep(2)
+            save(String(format: "02-playing-%02d", second))
+        }
+    }
+
     /// Drags pages slowly, cancels a turn, and flicks, in each style, for screen recordings of page turns.
     func testPageTurnTour() throws {
         guard ProcessInfo.processInfo.environment["MB_TOUR_OUTPUT"] != nil else {

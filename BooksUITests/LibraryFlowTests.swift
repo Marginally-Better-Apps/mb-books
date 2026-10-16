@@ -130,12 +130,57 @@ final class LibraryFlowTests: XCTestCase {
         XCTAssertTrue(reachedChapterThree, "Scrolling past the end of a chapter should open the next one")
     }
 
+    func testListensFollowsAlongAndShowsWhatIsRead() throws {
+        app.tabBars.buttons["Library"].tap()
+        let book = app.buttons["book.The Sample Voyage"]
+        XCTAssertTrue(book.waitForExistence(timeout: launchTimeout))
+        book.tap()
+        XCTAssertTrue(app.webViews.staticTexts["Departure"].waitForExistence(timeout: launchTimeout))
+
+        showChrome()
+        app.buttons["reader.listen"].tap()
+        let playPause = app.buttons["listen.playPause"]
+        XCTAssertTrue(playPause.waitForExistence(timeout: 10), "Listening shows its controls")
+        XCTAssertTrue(app.buttons["listen.speed"].exists)
+
+        // What's read: every chapter, with the footnote and its marker left out.
+        app.buttons["listen.options"].tap()
+        let contents = app.buttons["listen.contents"]
+        XCTAssertTrue(contents.waitForExistence(timeout: 5))
+        contents.tap()
+        XCTAssertTrue(app.staticTexts["Departure"].waitForExistence(timeout: 10))
+        XCTAssertTrue(app.staticTexts["Landfall"].exists)
+        XCTAssertTrue(app.staticTexts.matching(NSPredicate(format: "label CONTAINS 'note reference'")).firstMatch.exists,
+                      "The footnote marker is listed as left out")
+        app.navigationBars.buttons.element(boundBy: 0).tap()
+        app.buttons["listen.done"].tap()
+
+        // Turning the page by hand stops following until the reader asks to return.
+        app.swipeLeft()
+        let returnButton = app.buttons["listen.return"]
+        if !returnButton.waitForExistence(timeout: 5) {
+            showChrome()
+        }
+        XCTAssertTrue(returnButton.waitForExistence(timeout: 5), "Paging away offers a way back to the narration")
+        returnButton.tap()
+        XCTAssertTrue(wait(for: returnButton, toMatch: "exists == false"))
+
+        showChrome()
+        app.buttons["listen.stop"].tap()
+        XCTAssertTrue(wait(for: playPause, toMatch: "exists == false"), "Stopping hides the controls")
+    }
+
     func testSettingsShowsAppearanceAndRepositoryLink() throws {
         XCTAssertTrue(app.buttons["settings.open"].firstMatch.waitForExistence(timeout: launchTimeout))
         app.buttons["settings.open"].firstMatch.tap()
         XCTAssertTrue(app.buttons["Dark"].waitForExistence(timeout: launchTimeout))
         app.buttons["Dark"].tap()
-        XCTAssertTrue(app.buttons["settings.github"].exists)
+        // The About section sits below Listening and Library.
+        let github = app.buttons["settings.github"]
+        for _ in 0..<4 where !github.isHittable { app.swipeUp() }
+        XCTAssertTrue(github.exists)
+        XCTAssertTrue(app.staticTexts["Prepared Audiobooks"].exists || app.buttons["Download Studio Voice"].exists
+                      || app.staticTexts["Listening"].exists)
         app.buttons["settings.done"].tap()
     }
 

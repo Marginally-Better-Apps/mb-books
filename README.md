@@ -13,6 +13,32 @@ The app icon is an Icon Composer document (`Books/Resources/AppIcon.icon`) with 
 - **Annotations:** highlights in five colors or underline, notes, bookmarks, footnote popovers, and full-text search. Highlights use the CSS Custom Highlight API, so the book's DOM is never modified.
 - **Settings:** light, dark, or system appearance, reading goals, and a link to this repository.
 
+## Listening
+
+Tap the headphones in the reader (or choose **Listen from Here** on a selection) to have the book read aloud from the page on screen. The sentence being read is highlighted, the page turns along with it, and turning pages by hand stops following until you tap **Return to Narration**. Listening continues with the screen locked and works with headphone and Lock Screen controls.
+
+- **Instant** uses the voices built into iOS (`AVSpeechSynthesizer`). It starts immediately on every supported device and highlights word by word. Enhanced and Premium voices from Settings › Accessibility › Spoken Content are used automatically when installed.
+- **Studio** uses [Kokoro-82M](https://huggingface.co/hexgrad/Kokoro-82M), a neural voice that runs on the CPU with ONNX Runtime, so it works on every iPhone and iPad that runs iOS 26. The model (about 325 MB) downloads once. **Prepare Audiobook** (in the Listen options or a book's details) renders the whole book ahead of time and keeps going in the background; anything not prepared is rendered as you listen. Studio voices read English only.
+
+Nothing you read leaves the device. Every component is permissively licensed (Apache 2.0 or MIT, see [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)); espeak-ng, which is GPL, is deliberately not used.
+
+### What gets read
+
+`SpeechExtractor` decides what is the book. It uses the publisher's semantics first, then heuristics:
+
+| Left out | How it's recognized |
+| --- | --- |
+| Cover, title page, copyright page, table of contents, index, endnotes, bibliography, colophon | `epub:type` and ARIA roles on the document, nav landmarks or EPUB 2 `<guide>` types, `linear="no"`; otherwise heuristics (mostly links, rights and ISBN text, index-style lines, only the title and author) |
+| Print page numbers | `pagebreak` and `doc-pagebreak`, common page-number classes and IDs, and paragraphs that are only a number |
+| Note markers and notes | `noteref`, short linked markers like `12`, `*`, or `[3]`, superscript markers, `footnote` and `endnote` asides, the notes they point to, and trailing "Notes" sections |
+| Running heads | Short lines repeated through a chapter that name the book or author |
+| Hidden or duplicated text | `hidden`, `aria-hidden`, inline and stylesheet `display: none`, pull quotes, ruby annotations |
+| Project Gutenberg license text | The `*** START`/`*** END` markers and license documents |
+
+Headings get longer pauses and read "Chapter IV" as "Chapter 4"; scene-break ornaments become pauses; soft hyphens, ligatures, URL paths, and inline markers like `¹` are cleaned up; language changes inside a paragraph switch voices. Pages that are only images (scans and image-based fixed layouts) are read with on-device OCR (Vision), which drops folios and running heads in the margins, orders two-column pages, and rejoins words hyphenated across lines.
+
+**What's Read Aloud** in the Listen options lists every document, why it's read or skipped, and what was left out of it, with switches to override the choices per book.
+
 ## EPUB support
 
 The engine targets [EPUB 3.4](https://www.w3.org/TR/epub-34/) and [EPUB Reading Systems 3.4](https://www.w3.org/TR/epub-rs-34/) (W3C Candidate Recommendation), and reads EPUB 3.0–3.3 and EPUB 2 books.
@@ -28,7 +54,7 @@ The engine targets [EPUB 3.4](https://www.w3.org/TR/epub-34/) and [EPUB Reading 
 | Fonts | IDPF and Adobe font obfuscation. Other encryption (DRM) is rejected with a clear message. |
 | Locations | Reading positions and highlights are stored as EPUB CFIs, so they survive font and layout changes |
 
-Media overlays (read aloud) are parsed from the manifest but not played yet.
+Media overlays (publisher narration) are parsed from the manifest but not played yet; see Listening for generated narration.
 
 ## Architecture
 
@@ -37,15 +63,18 @@ Media overlays (read aloud) are parsed from the manifest but not played yet.
 - `Books/Reader`: `ReaderModel` (state and annotations), `ReaderViewController` (loading, the JS bridge, and chapter preloading across a few `ChapterView` web views), page-turn presenters in `PageTurn.swift` and `CurlPagePresenter.swift`, and SwiftUI chrome and sheets. `Web/reader.js` paginates and handles locations, highlights, search, and taps in an isolated content world. Fixed layouts load generated wrapper pages that scale each page in an iframe.
 - `Books/Models`: SwiftData models (`Book`, `BookCollection`, `Annotation`, `ReadingDay`) and `Locator`.
 
-Requires Xcode 26 and iOS 26 or newer. The project has no third-party dependencies. `project.yml` is the source of truth for project settings. Run `xcodegen generate` after changing it. Open `MBBooks.xcodeproj` and run the shared `MBBooks` scheme. For direct device runs in Xcode, select your development team and enable signing in your local build settings.
+- `Books/Speech`: read aloud. `SpeechExtractor` and `ScanReader` turn documents into utterances with text offsets that `reader.js` highlights; `ListeningSession` drives a system-voice or Studio backend and follows along in the reader; `AudiobookPreparer` renders Studio audiobooks. `Neural/` holds the Kokoro runner, the Swift port of misaki's English G2P, and the model download store.
+
+Requires Xcode 26 and iOS 26 or newer. The only third-party dependency is ONNX Runtime (Swift package), for Studio voices. `project.yml` is the source of truth for project settings. Run `xcodegen generate` after changing it. Open `MBBooks.xcodeproj` and run the shared `MBBooks` scheme. For direct device runs in Xcode, select your development team and enable signing in your local build settings.
 
 ## Testing
 
 `ios-test.sh` runs the XCTest suites on the newest available iPhone simulator. Set `MB_TEST_DESTINATION` to choose another one.
 
 - `BooksTests`: unit tests for ZIP, parsing, EPUB 2/3/3.4 layouts, fallbacks, DRM detection, font deobfuscation, import, deduplication, search offsets, spreads, progress, reading streaks, and preferences.
+- `BooksTests/SpeechTests`: content extraction (page numbers, notes, front matter, hidden text, running heads), text offsets matching the reader, OCR layout, pronunciation checked against misaki, and audiobook storage. `KokoroIntegrationTests` renders real speech when `TEST_RUNNER_MB_KOKORO_DIR` points at a folder with `model.onnx` and `af_heart.bin`.
 - `BooksUITests/LibraryFlowTests`: opens a generated EPUB 3.4 book, pages across chapters, follows nested TOC links, switches themes, bookmarks, reopens at the saved position, and checks Settings.
-- `BooksUITests/ScreenshotTour`: a development aid, skipped by default. Run it with `TEST_RUNNER_MB_TOUR_OUTPUT=/tmp/shots` (and optionally `TEST_RUNNER_MB_TOUR_DIR=<folder of .epub files>`) to screenshot every book and the reader sheets.
+- `BooksUITests/ScreenshotTour`: a development aid, skipped by default. Run it with `TEST_RUNNER_MB_TOUR_OUTPUT=/tmp/shots` (and optionally `TEST_RUNNER_MB_TOUR_DIR=<folder of .epub files>`) to screenshot every book and the reader sheets. `testStudioTour` also needs `TEST_RUNNER_MB_VOICE_MODEL_DIR` (a folder with `model.onnx` and `voices/af_heart.bin`) and points the app at that model in Debug builds.
 
 For manual testing, launch the app with `-import-directory <folder>` to import every EPUB in a folder at startup. UI tests use `-ui-testing -seed-sample-book` for an isolated, in-memory library.
 

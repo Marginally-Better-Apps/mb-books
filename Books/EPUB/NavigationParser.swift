@@ -15,7 +15,7 @@ nonisolated enum NavigationParser {
         for nav in root.descendants(named: "nav") {
             let types = nav.tokens("type", namespace: XMLNamespace.ops)
             guard let list = nav.child(named: "ol") else { continue }
-            let points = parseList(list, basePath: path, counter: &counter)
+            let points = parseList(list, basePath: path, counter: &counter, keepsTypes: types.contains("landmarks"))
             if types.contains("toc"), navigation.toc.isEmpty {
                 navigation.toc = points
             } else if types.contains("page-list") {
@@ -27,16 +27,33 @@ nonisolated enum NavigationParser {
         return navigation
     }
 
-    private static func parseList(_ list: MarkupElement, basePath: String, counter: inout Int) -> [NavigationPoint] {
+    private static func parseList(
+        _ list: MarkupElement, basePath: String, counter: inout Int, keepsTypes: Bool = false
+    ) -> [NavigationPoint] {
         list.children(named: "li").compactMap { item in
             let label = item.child(named: "a") ?? item.child(named: "span")
-            let children = item.child(named: "ol").map { parseList($0, basePath: basePath, counter: &counter) } ?? []
+            let children = item.child(named: "ol").map {
+                parseList($0, basePath: basePath, counter: &counter, keepsTypes: keepsTypes)
+            } ?? []
             let title = label.map(labelText) ?? ""
             guard !title.isEmpty || !children.isEmpty else { return nil }
             let target = label?.attribute("href").flatMap { EPUBPath.resolve($0, relativeTo: basePath) }
             counter += 1
+            let type = keepsTypes ? label?.tokens("type", namespace: XMLNamespace.ops).sorted().first : nil
             return NavigationPoint(
-                id: "nav-\(counter)", title: title, path: target?.path, fragment: target?.fragment, children: children)
+                id: "nav-\(counter)", title: title, path: target?.path, fragment: target?.fragment, children: children,
+                type: type)
+        }
+    }
+
+    /// EPUB 2 `<guide>` references, as landmarks.
+    static func parseGuide(_ guide: MarkupElement?, packagePath: String) -> [NavigationPoint] {
+        (guide?.children(named: "reference") ?? []).enumerated().compactMap { index, reference in
+            guard let href = reference.attribute("href"), let target = EPUBPath.resolve(href, relativeTo: packagePath)
+            else { return nil }
+            return NavigationPoint(
+                id: "guide-\(index)", title: reference.attribute("title") ?? "", path: target.path,
+                fragment: target.fragment, children: [], type: reference.attribute("type"))
         }
     }
 

@@ -48,6 +48,9 @@
       .join('');
     css += '::highlight(mb-underline){text-decoration:underline;text-decoration-color:#ff3b30;text-decoration-thickness:2px;}';
     css += '::highlight(mb-search){background-color:rgba(255,159,10,.55);}';
+    // Read aloud: the sentence being spoken, and the word within it.
+    css += `::highlight(mb-speech){background-color:rgba(10,132,255,${dark ? 0.24 : 0.14});}`;
+    css += `::highlight(mb-speech-word){background-color:rgba(10,132,255,${dark ? 0.5 : 0.32});}`;
     return css;
   }
 
@@ -578,6 +581,134 @@
   }
 
   // ---------------------------------------------------------------------------
+  // Read aloud. Native code addresses text by UTF-16 offset into the concatenated text nodes,
+  // the same offsets `BookSearcher.bodyText` produces, so speech scripts built in Swift line up.
+
+  function textStarts() {
+    const nodes = textNodes();
+    const starts = [];
+    let total = 0;
+    for (const node of nodes) { starts.push(total); total += node.length; }
+    return { nodes, starts, total };
+  }
+
+  function locateOffset(index, absolute) {
+    const { nodes, starts } = index;
+    if (!nodes.length) return null;
+    let low = 0;
+    let high = starts.length - 1;
+    while (low < high) {
+      const mid = (low + high + 1) >> 1;
+      if (starts[mid] <= absolute) low = mid; else high = mid - 1;
+    }
+    return { node: nodes[low], offset: Math.max(0, Math.min(nodes[low].length, absolute - starts[low])) };
+  }
+
+  function offsetOf(node, offset) {
+    const { nodes, starts } = textStarts();
+    const index = nodes.indexOf(node);
+    if (index >= 0) return starts[index] + (offset || 0);
+    // An element boundary: the first text node at or after it.
+    for (let i = 0; i < nodes.length; i += 1) {
+      const position = node.compareDocumentPosition(nodes[i]);
+      if (position & Node.DOCUMENT_POSITION_FOLLOWING || position & Node.DOCUMENT_POSITION_CONTAINED_BY) return starts[i];
+    }
+    return null;
+  }
+
+  function rangeForOffsets(index, start, end) {
+    const a = locateOffset(index, start);
+    const b = locateOffset(index, Math.max(start, end));
+    if (!a || !b) return null;
+    const range = document.createRange();
+    try {
+      range.setStart(a.node, a.offset);
+      range.setEnd(b.node, b.offset);
+    } catch (_) { return null; }
+    return range;
+  }
+
+  /// The page (or scroll offset) showing the character at `absolute`, skipping characters without boxes.
+  function placeOfOffset(index, absolute, limit) {
+    for (let at = absolute; at < Math.min(limit, absolute + 64); at += 1) {
+      const position = locateOffset(index, at);
+      if (!position || position.offset >= position.node.length) continue;
+      const rects = rangeRects(position.node, position.offset, position.offset + 1);
+      const rect = rects[0];
+      if (rect && (rect.width || rect.height)) return rect;
+    }
+    return null;
+  }
+
+  function pageAt(index, absolute, limit) {
+    const rect = placeOfOffset(index, absolute, limit);
+    return rect ? pageOfRect(rect) : null;
+  }
+
+  function speechMark(start, end, wordStart, wordEnd) {
+    if (!window.CSS || !CSS.highlights) return null;
+    const index = textStarts();
+    const sentence = rangeForOffsets(index, start, end);
+    if (sentence) CSS.highlights.set('mb-speech', new Highlight(sentence)); else CSS.highlights.delete('mb-speech');
+    const word = typeof wordStart === 'number' ? rangeForOffsets(index, wordStart, wordEnd) : null;
+    if (word) CSS.highlights.set('mb-speech-word', new Highlight(word)); else CSS.highlights.delete('mb-speech-word');
+    if (!sentence || isFixed()) return null;
+    if (!isPaginated()) {
+      const rect = placeOfOffset(index, typeof wordStart === 'number' ? wordStart : start, end);
+      if (!rect) return null;
+      const top = state.config.insets ? state.config.insets.top : 0;
+      const bottom = window.innerHeight - (state.config.insets ? state.config.insets.bottom : 0);
+      return { visible: rect.top >= top && rect.bottom <= bottom, y: Math.max(0, rect.top + window.scrollY - top - 80) };
+    }
+    const startPage = pageAt(index, start, end);
+    if (startPage === null) return null;
+    const endPage = pageAt(index, Math.max(start, end - 1), end) ?? startPage;
+    // Where a sentence that runs onto the next page crosses over, so the page can turn mid-sentence.
+    let breakOffset = null;
+    if (endPage !== startPage) {
+      let low = start;
+      let high = end - 1;
+      while (low < high) {
+        const mid = (low + high) >> 1;
+        const page = pageAt(index, mid, end);
+        if (page !== null && page > startPage) high = mid; else low = mid + 1;
+      }
+      breakOffset = low;
+    }
+    return { startPage, endPage, breakOffset, currentPage: currentPage() };
+  }
+
+  function speechClear() {
+    if (!window.CSS || !CSS.highlights) return;
+    CSS.highlights.delete('mb-speech');
+    CSS.highlights.delete('mb-speech-word');
+  }
+
+  function positionForOffset(absolute) {
+    const index = textStarts();
+    const rect = placeOfOffset(index, absolute, index.total);
+    if (!rect) return isPaginated() ? { page: 0 } : { y: 0 };
+    if (isPaginated()) return { page: pageOfRect(rect) };
+    const top = state.config.insets ? state.config.insets.top : 0;
+    return { y: Math.max(0, rect.top + window.scrollY - top - 80) };
+  }
+
+  function firstVisibleOffset() {
+    if (isFixed()) return 0;
+    const position = firstVisiblePosition();
+    if (!position) return 0;
+    return offsetOf(position.node, isText(position.node) ? position.offset : null) || 0;
+  }
+
+  function selectionOffset() {
+    const selected = window.getSelection();
+    if (!selected || !selected.rangeCount) return null;
+    const range = selected.getRangeAt(0);
+    const start = normalizedBoundary(range.startContainer, range.startOffset);
+    return offsetOf(start.node, isText(start.node) ? start.offset : null);
+  }
+
+  // ---------------------------------------------------------------------------
   // Taps, links, and footnotes
 
   const INTERACTIVE = 'video, audio, button, input, select, textarea, label, summary, details, iframe, object, embed, ' +
@@ -812,6 +943,11 @@
       return !!highlightAt(x, y);
     },
     find,
+    speechMark,
+    speechClear,
+    positionForOffset,
+    firstVisibleOffset,
+    selectionOffset,
     cfiFor,
     resolveCFI: (cfi) => { const p = resolveCFI(cfi); return p ? cfiFor(p.node, p.offset) : null; },
   });

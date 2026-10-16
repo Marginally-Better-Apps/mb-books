@@ -144,6 +144,7 @@ final class BookWebView: WKWebView {
         let highlight: () -> Void
         let note: () -> Void
         let search: (String) -> Void
+        let listen: () -> Void
     }
 
     var menuActions: MenuActions?
@@ -164,7 +165,10 @@ final class BookWebView: WKWebView {
                 actions.search(text)
             }
         }
+        let listen = UIAction(title: String(localized: "Listen from Here"), image: UIImage(systemName: "headphones")) { _ in
+            actions.listen()
+        }
         builder.insertChild(UIMenu(options: .displayInline, children: [highlight, note]), atStartOfMenu: .root)
-        builder.insertChild(UIMenu(options: .displayInline, children: [search]), atEndOfMenu: .root)
+        builder.insertChild(UIMenu(options: .displayInline, children: [search, listen]), atEndOfMenu: .root)
     }
 }

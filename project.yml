@@ -3,6 +3,11 @@ options:
   bundleIdPrefix: com.mbbooks
   deploymentTarget:
     iOS: '26.0'
+packages:
+  # Runs the neural voice model on the CPU (MIT license).
+  OnnxRuntime:
+    url: https://github.com/microsoft/onnxruntime-swift-package-manager
+    exactVersion: 1.24.2
 settings:
   base:
     SWIFT_VERSION: '6.0'
@@ -20,6 +25,9 @@ targets:
     type: application
     platform: iOS
     sources: [Books]
+    dependencies:
+      - package: OnnxRuntime
+        product: onnxruntime
     info:
       path: Books/Info.plist
       properties:
@@ -29,6 +37,11 @@ targets:
         ITSAppUsesNonExemptEncryption: false
         LSSupportsOpeningDocumentsInPlace: false
         UILaunchScreen: {}
+        # Listening continues with the screen locked.
+        UIBackgroundModes: [audio]
+        # Preparing a Studio audiobook continues in the background after the reader starts it.
+        BGTaskSchedulerPermittedIdentifiers:
+          - com.mbbooks.MBBooks.prepare.*
         UIApplicationSceneManifest:
           UIApplicationSupportsMultipleScenes: false
         UISupportedInterfaceOrientations:
