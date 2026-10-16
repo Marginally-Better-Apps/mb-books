@@ -343,8 +343,8 @@ final class PronunciationTests: XCTestCase {
              "ði ˌɛfbˌiˈI ænd nˈæsə mˈɛt ɪn wˈɔʃɪŋtən, dˌisˈi ˌɔn ðə twˈɛnti fˈɜɹst ʌv ʤˈun."),
             ("Hermione looked at Harry, who was reading the letter from Dumbledore.",
              "hˈɜɹmiˌOn lˈʊkt æt hˈɛɹi, hˌu wʌz ɹˈidɪŋ ðə lˈɛTəɹ fɹʌm dˈʌmᵊldˌɔɹ."),
-            ("The record shows that I will record the song live where they live.",
-             "ðə ɹˈɛkəɹd ʃˈOz ðæt ˌI wɪl ɹəkˈɔɹd ðə sˈɔŋ lˈɪv wˌɛɹ ðA lˈɪv."),
+            // Tagger models differ between OS builds, so only unambiguous heteronyms are compared.
+            ("The record shows that I will record the song.", "ðə ɹˈɛkəɹd ʃˈOz ðæt ˌI wɪl ɹəkˈɔɹd ðə sˈɔŋ."),
             ("It's a well-known fact that co-operation is key.",
              "ˌɪts ɐ wˌɛlnˈOn fˈækt ðæt kˌOˌɑpəɹˈAʃən ɪz kˈi."),
             // misaki reads years as "nineteen hundred eighty-four"; this reads them as people say them.
