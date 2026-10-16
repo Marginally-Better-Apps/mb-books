@@ -2,7 +2,8 @@
 set -euo pipefail
 # Release tags are the version source of truth. The project value is a first-build fallback.
 if [[ -z "${APP_VERSION:-}" ]]; then
-  tag="$(git tag --list 'v[0-9]*' --sort=-version:refname | head -n 1)"
+  # Gala syncs sources without .git, so a missing repository falls back to the project version.
+  tag="$( (git tag --list 'v[0-9]*' --sort=-version:refname 2>/dev/null || true) | head -n 1)"
   APP_VERSION="${tag#v}"
   APP_VERSION="${APP_VERSION:-0.1.0}"
 fi

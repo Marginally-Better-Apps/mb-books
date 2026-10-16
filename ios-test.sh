@@ -2,13 +2,21 @@
 set -euo pipefail
 : "${GALA_BUILD_DIR:?Gala Engine sets this}"
 xcodegen generate
-# Compile the SwiftUI workspace against the simulator SDK without booting a device.
-# Replace or extend this gate with XCTest when app behavior is added.
+# Unit tests cover the EPUB engine; UI tests drive the library and reader with a generated EPUB 3.4 book.
+destination="${MB_TEST_DESTINATION:-$(python3 scripts/pick-simulator.py)}"
+# Boot ahead of time so first-launch setup on a fresh simulator doesn't eat into UI test timeouts.
+if [[ "$destination" =~ id=([0-9A-F-]+) ]]; then
+  xcrun simctl bootstatus "${BASH_REMATCH[1]}" -b >/dev/null
+fi
+results="$GALA_BUILD_DIR/TestResults.xcresult"
+rm -rf "$results"
 xcodebuild -project MBBooks.xcodeproj -scheme MBBooks -configuration Debug \
-  -destination 'generic/platform=iOS Simulator' \
+  -destination "$destination" \
   -derivedDataPath "$GALA_BUILD_DIR/DerivedData" \
   -packageCachePath "$GALA_BUILD_DIR/SwiftPM" \
-  -jobs "${GALA_JOBS:-2}" CODE_SIGNING_ALLOWED=NO build
+  -resultBundlePath "$results" \
+  -parallel-testing-enabled NO \
+  -jobs "${GALA_JOBS:-2}" CODE_SIGNING_ALLOWED=NO test
 /usr/libexec/PlistBuddy -c 'Print CFBundleIdentifier' \
   "$GALA_BUILD_DIR/DerivedData/Build/Products/Debug-iphonesimulator/MBBooks.app/Info.plist" \
   | /usr/bin/grep -qx 'com.mbbooks.MBBooks'

@@ -22,7 +22,7 @@ python3 -m unittest discover -s scripts -p 'test_*.py'
 actionlint
 ```
 
-On a Mac, `gala test --host local` checks the simulator build. `gala deliver --host local --json` builds, signs, and publishes a private device install. Open the delivered build on a device to check app behavior.
+On a Mac, `gala test --host local` runs the unit and UI tests on a simulator. `gala deliver --host local --json` builds, signs, and publishes a private device install. Open the delivered build on a device to check app behavior.
 
 CI builds simulator and device targets. Download the `ios-unsigned` artifact for the IPA, checksum, and build metadata. Successful PR builds also publish a `pr-<number>` prerelease on the Releases page. Open its Autoloader link to sign and install the preview. Previews use the latest stable marketing version; the build number and source commit distinguish them.
 

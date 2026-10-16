@@ -2,26 +2,87 @@ name: MBBooks
 options:
   bundleIdPrefix: com.mbbooks
   deploymentTarget:
-    iOS: '18.0'
+    iOS: '26.0'
 settings:
   base:
-    SWIFT_VERSION: '5.0'
+    SWIFT_VERSION: '6.0'
+    SWIFT_DEFAULT_ACTOR_ISOLATION: MainActor
+    SWIFT_APPROACHABLE_CONCURRENCY: YES
+    SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY: YES
     TARGETED_DEVICE_FAMILY: '1,2'
     CODE_SIGNING_ALLOWED: NO
     MARKETING_VERSION: '0.1.0'
     CURRENT_PROJECT_VERSION: 1
-    GENERATE_INFOPLIST_FILE: YES
-    INFOPLIST_KEY_UILaunchScreen_Generation: YES
-    INFOPLIST_KEY_CFBundleDisplayName: MB Books
-    INFOPLIST_KEY_UISupportedInterfaceOrientations: UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight
-    INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad: UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight
+    ENABLE_USER_SCRIPT_SANDBOXING: YES
+    STRING_CATALOG_GENERATE_SYMBOLS: YES
 targets:
   MBBooks:
     type: application
     platform: iOS
     sources: [Books]
+    info:
+      path: Books/Info.plist
+      properties:
+        CFBundleDisplayName: MB Books
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        ITSAppUsesNonExemptEncryption: false
+        LSSupportsOpeningDocumentsInPlace: false
+        UILaunchScreen: {}
+        UIApplicationSceneManifest:
+          UIApplicationSupportsMultipleScenes: false
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
+        UISupportedInterfaceOrientations~ipad:
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationPortraitUpsideDown
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
+        CFBundleDocumentTypes:
+          - CFBundleTypeName: EPUB Book
+            CFBundleTypeRole: Viewer
+            LSHandlerRank: Alternate
+            LSItemContentTypes:
+              - org.idpf.epub-container
+              - org.idpf.epub-folder
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: YES
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
+  MBBooksTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources: [BooksTests]
+    dependencies:
+      - target: MBBooks
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: YES
+        TEST_HOST: $(BUILT_PRODUCTS_DIR)/MBBooks.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/MBBooks
+        BUNDLE_LOADER: $(TEST_HOST)
+        SWIFT_DEFAULT_ACTOR_ISOLATION: nonisolated
+  MBBooksUITests:
+    type: bundle.ui-testing
+    platform: iOS
+    sources: [BooksUITests]
+    dependencies:
+      - target: MBBooks
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: YES
+        TEST_TARGET_NAME: MBBooks
+        SWIFT_DEFAULT_ACTOR_ISOLATION: nonisolated
 schemes:
   MBBooks:
     build:
       targets:
         MBBooks: all
+    test:
+      config: Debug
+      gatherCoverageData: true
+      targets:
+        - MBBooksTests
+        - MBBooksUITests

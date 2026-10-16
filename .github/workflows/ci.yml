@@ -32,9 +32,11 @@ jobs:
 
   build:
     name: Validate and build
-    runs-on: macos-15
-    timeout-minutes: 30
+    # Liquid Glass and Icon Composer icons need the iOS 26 SDK.
+    runs-on: macos-26
+    timeout-minutes: 45
     env:
+      DEVELOPER_DIR: /Applications/Xcode_26.5.app/Contents/Developer
       GALA_BUILD_DIR: ${{ github.workspace }}/.ci-build
       GALA_ARTIFACT_DIR: ${{ github.workspace }}/artifacts
       GALA_JOBS: 3
@@ -57,10 +59,21 @@ jobs:
           python3 -m unittest discover -s scripts -p 'test_*.py'
           actionlint
           bash -n ios-build.sh ios-test.sh scripts/version.sh .githooks/commit-msg
+          node --check Books/Reader/Web/reader.js
+          node --check Books/Reader/Web/epub-reading-system.js
+          node --check Books/Reader/Web/frame.js
           xcodegen generate
           git diff --exit-code -- MBBooks.xcodeproj
-      - name: Compile simulator app and check identity
+      - name: Run unit and UI tests on a simulator
         run: ./ios-test.sh
+      - name: Save test results
+        if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: test-results
+          path: .ci-build/TestResults.xcresult
+          if-no-files-found: ignore
+          retention-days: 7
       - name: Build and validate device IPA
         run: ./ios-build.sh
       - name: Save unsigned IPA, checksum, and build metadata
@@ -75,11 +88,12 @@ jobs:
     name: Release
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     needs: [conventions, build]
-    runs-on: macos-15
+    runs-on: macos-26
     timeout-minutes: 30
     permissions:
       contents: write
     env:
+      DEVELOPER_DIR: /Applications/Xcode_26.5.app/Contents/Developer
       GALA_BUILD_DIR: ${{ github.workspace }}/.ci-build
       GALA_ARTIFACT_DIR: ${{ github.workspace }}/artifacts
       GALA_JOBS: 3
