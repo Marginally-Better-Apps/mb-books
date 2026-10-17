@@ -177,9 +177,9 @@ final class ScreenshotTour: XCTestCase {
         sleep(2)
         save("06-whats-read")
         app.navigationBars.buttons.element(boundBy: 0).tap()
-        for _ in 0..<8 where !app.buttons["voice.preview.af_heart"].isHittable { app.swipeDown() }
+        for _ in 0..<8 where !app.buttons["voice.preview.george"].isHittable { app.swipeDown() }
         save("07-voices")
-        app.buttons["voice.preview.af_heart"].tap()
+        app.buttons["voice.preview.george"].tap()
         save("08-preview")
         app.swipeUp()
         save("09-apple-voices")
@@ -239,7 +239,7 @@ final class ScreenshotTour: XCTestCase {
         if let output { try? XCUIScreen.main.screenshot().pngRepresentation.write(to: output.appending(path: "i-home.png")) }
     }
 
-    /// Listens with a natural voice. Needs `MB_VOICE_MODEL_DIR`: a folder with `model_quantized.onnx` and `voices/*.bin`.
+    /// Listens with a natural voice. Needs `MB_VOICE_MODEL_DIR`: a folder with `FlowLM.mlmodelc`, `Mimi.mlmodelc`, and `voices/*.bin`.
     func testNaturalVoiceTour() throws {
         let environment = ProcessInfo.processInfo.environment
         guard let output = environment["MB_TOUR_OUTPUT"], let models = environment["MB_VOICE_MODEL_DIR"] else {
@@ -268,7 +268,7 @@ final class ScreenshotTour: XCTestCase {
         app.buttons["listen.options"].tap()
         sleep(1)
         save("01-voices")
-        app.buttons["voice.select.am_michael"].tap()
+        app.buttons["voice.select.bill_boerst"].tap()
         app.buttons["listen.done"].tap()
         for second in 0..<8 {
             sleep(2)

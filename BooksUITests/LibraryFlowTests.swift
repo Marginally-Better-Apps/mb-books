@@ -187,7 +187,7 @@ final class LibraryFlowTests: XCTestCase {
 
         app.buttons["listen.options"].tap()
         // Natural voices can be heard before they're downloaded.
-        let naturalPreview = app.buttons["voice.preview.af_heart"]
+        let naturalPreview = app.buttons["voice.preview.george"]
         XCTAssertTrue(naturalPreview.waitForExistence(timeout: 5))
         naturalPreview.tap()
         XCTAssertTrue(wait(for: naturalPreview, toMatch: "label == 'Stop Sample'"), "The sample plays")

@@ -191,7 +191,7 @@ enum SystemVoices {
 
 // MARK: - Natural voices
 
-/// Natural voices: Kokoro renders a few sentences ahead of the listener while they play through
+/// Natural voices: Pocket TTS renders a few sentences ahead of the listener while they play through
 /// `AVAudioEngine`, so speed changes keep the voice's pitch.
 @MainActor
 final class NeuralSpeechBackend: SpeechBackend {
@@ -205,7 +205,7 @@ final class NeuralSpeechBackend: SpeechBackend {
     }
 
     let voice: NeuralVoiceCatalog.Voice
-    private let modelURL: URL
+    private let directory: URL
     private let voiceURL: URL
     private let engine = AVAudioEngine()
     private let player = AVAudioPlayerNode()
@@ -214,16 +214,17 @@ final class NeuralSpeechBackend: SpeechBackend {
     private var generation = 0
     private var nextToSchedule = 0
     private var scheduledAhead = 0
-    private var rendering: [Int: Task<[Float]?, Never>] = [:]
+    /// Rendered samples (nil for a sentence that's skipped), or a failure that stops listening.
+    private var rendering: [Int: Task<Result<[Float]?, NeuralVoiceError>, Never>] = [:]
     private var isPaused = false
     private var isWaiting = false
     private var durations: [Int: TimeInterval] = [:]
     /// Sentences rendered ahead of the one playing.
     private let lookahead = 3
 
-    init(voice: NeuralVoiceCatalog.Voice, modelURL: URL, voiceURL: URL) {
+    init(voice: NeuralVoiceCatalog.Voice, directory: URL, voiceURL: URL) {
         self.voice = voice
-        self.modelURL = modelURL
+        self.directory = directory
         self.voiceURL = voiceURL
         engine.attach(player)
         engine.attach(timePitch)
@@ -231,7 +232,7 @@ final class NeuralSpeechBackend: SpeechBackend {
             engine.connect(player, to: timePitch, format: format)
             engine.connect(timePitch, to: engine.mainMixerNode, format: format)
         }
-        NeuralSpeechService.shared.prewarm(modelURL: modelURL)
+        NeuralSpeechService.shared.prewarm(directory: directory)
     }
 
     func play(_ utterances: [SpeechUtterance], from index: Int) {
@@ -284,10 +285,10 @@ final class NeuralSpeechBackend: SpeechBackend {
         for index in nextToSchedule..<min(utterances.count, nextToSchedule + lookahead) where rendering[index] == nil {
             let text = utterances[index].text
             let voice = voice
-            let modelURL = modelURL
+            let directory = directory
             let voiceURL = voiceURL
             rendering[index] = Task.detached(priority: .userInitiated) {
-                await Self.samples(for: text, voice: voice, modelURL: modelURL, voiceURL: voiceURL)
+                await Self.samples(for: text, voice: voice, directory: directory, voiceURL: voiceURL)
             }
         }
         guard scheduledAhead < 2, nextToSchedule < utterances.count, let task = rendering[nextToSchedule] else {
@@ -297,11 +298,17 @@ final class NeuralSpeechBackend: SpeechBackend {
         let index = nextToSchedule
         if scheduledAhead == 0 { setWaiting(true) }
         Task {
-            let samples = await task.value
+            let result = await task.value
             guard generation == self.generation, index == nextToSchedule else { return }
             rendering[index] = nil
+            if case .failure(let error) = result {
+                // Nothing can be read: stop rather than skip through the book.
+                stopPlayback()
+                delegate?.backend(didFail: error)
+                return
+            }
             nextToSchedule += 1
-            guard let samples, !samples.isEmpty, let format = Self.format, let buffer = Self.buffer(samples, format: format) else {
+            guard case .success(let samples) = result, let samples, !samples.isEmpty, let format = Self.format, let buffer = Self.buffer(samples, format: format) else {
                 // A sentence that can't be rendered is skipped rather than stopping the book.
                 fill()
                 return
@@ -343,16 +350,19 @@ final class NeuralSpeechBackend: SpeechBackend {
     }
 
     @concurrent
-    nonisolated private static func samples(for text: String, voice: NeuralVoiceCatalog.Voice, modelURL: URL,
-                                            voiceURL: URL) async -> [Float]? {
-        guard !Task.isCancelled else { return nil }
+    nonisolated private static func samples(for text: String, voice: NeuralVoiceCatalog.Voice, directory: URL,
+                                            voiceURL: URL) async -> Result<[Float]?, NeuralVoiceError> {
+        guard !Task.isCancelled else { return .success(nil) }
         do {
-            return try await NeuralSpeechService.shared.synthesize(text, voice: voice, modelURL: modelURL, voiceURL: voiceURL)
+            return .success(try await NeuralSpeechService.shared.synthesize(text, voice: voice, directory: directory, voiceURL: voiceURL))
         } catch is CancellationError {
-            return nil
+            return .success(nil)
+        } catch let error as NeuralVoiceError {
+            logger.error("Natural voices are unusable: \(error.localizedDescription, privacy: .public)")
+            return .failure(error)
         } catch {
             logger.error("Couldn't render a sentence: \(error.localizedDescription, privacy: .public)")
-            return nil
+            return .success(nil)
         }
     }
 

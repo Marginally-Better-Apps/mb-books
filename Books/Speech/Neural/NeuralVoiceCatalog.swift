@@ -1,11 +1,10 @@
 import Foundation
 
-/// The neural voice model and its voices, pinned to exact files so every download can be verified.
+/// The natural voice model and its voices, pinned to exact files so every download can be verified.
 ///
-/// Kokoro-82M (hexgrad, Apache 2.0) as exported to ONNX by onnx-community (Apache 2.0). Only English
-/// voices are offered: Kokoro's other languages depend on espeak-ng for pronunciation, which is GPL-licensed.
-/// Kyutai's Pocket TTS (January 2026) was also measured; it scored the same for naturalness, so the
-/// already-integrated, deterministic Kokoro stays.
+/// Kyutai's Pocket TTS (english_2026-09, CC BY 4.0), converted to Core ML by `scripts/pocket-tts/convert.py`.
+/// Pocket reads plain text, with no pronunciation dictionary, and sounds far more natural than Kokoro, which
+/// it replaced. Only voices licensed for commercial use are offered.
 nonisolated enum NeuralVoiceCatalog {
     struct File: Sendable, Hashable {
         let name: String
@@ -15,18 +14,26 @@ nonisolated enum NeuralVoiceCatalog {
     }
 
     struct Voice: Identifiable, Sendable, Hashable {
+        enum Source: Sendable {
+            case audiobookNarrator, voiceActor, studioRecording
+        }
+
         let id: String
         let name: String
-        let isFemale: Bool
+        let source: Source
+        let size: Int64
         let sha256: String
 
         var file: File {
-            File(name: "\(id).bin", url: NeuralVoiceCatalog.repository.appending(path: "voices/\(id).bin"),
-                 size: 522_240, sha256: sha256)
+            File(name: "\(id).bin", url: NeuralVoiceCatalog.repository.appending(path: "voices/\(id).bin"), size: size, sha256: sha256)
         }
 
         var description: String {
-            isFemale ? String(localized: "American English · Female") : String(localized: "American English · Male")
+            switch source {
+            case .audiobookNarrator: String(localized: "Audiobook narrator")
+            case .voiceActor: String(localized: "Voice actor")
+            case .studioRecording: String(localized: "Studio recording")
+            }
         }
 
         /// A short sample bundled with the app, so voices can be heard before the model is downloaded.
@@ -35,29 +42,56 @@ nonisolated enum NeuralVoiceCatalog {
         }
     }
 
-    static let modelID = "kokoro-82m-v1.0-q8"
-    /// Folders of earlier, larger model downloads, removed to give the space back.
-    static let retiredModelIDs = ["kokoro-82m-v1.0"]
-    private static let revision = "1939ad2a8e416c0acfeecc08a694d14ef25f2231"
-    static let repository = URL(string: "https://huggingface.co/onnx-community/Kokoro-82M-v1.0-ONNX/resolve/\(revision)")!
+    static let modelID = "pocket-tts-2026-09-v1"
+    /// Folders of earlier model downloads, removed to give the space back.
+    static let retiredModelIDs = ["kokoro-82m-v1.0", "kokoro-82m-v1.0-q8"]
+    // TODO: Move to a public host before release. The tailnet only reaches the developer's own devices.
+    static let repository = URL(string: "https://shloks-macbook-air.taildb44.ts.net:8443/pocket-tts/v1")!
 
-    /// The 8-bit model: about twice as fast as full precision on phone CPUs, and close in quality
-    /// (UTMOS 4.36 against 4.45 in testing), so it reads ahead of the listener on every supported device.
-    static let model = File(
-        name: "model_quantized.onnx", url: repository.appending(path: "onnx/model_quantized.onnx"), size: 92_361_116,
-        sha256: "fbae9257e1e05ffc727e951ef9b9c98418e6d79f1c9b6b13bd59f5c9028a1478")
+    /// Core ML models, archived with Apple Archive: the transformer (8-bit weights) and the audio decoder.
+    static let models = [
+        File(name: "FlowLM.mlmodelc.aar", url: repository.appending(path: "FlowLM.mlmodelc.aar"), size: 78_428_223,
+             sha256: "ee9fd76490e9ae2b0c5c78f52b08e7c3cacc988e8edded8cd9722ea1c9141bcc"),
+        File(name: "Mimi.mlmodelc.aar", url: repository.appending(path: "Mimi.mlmodelc.aar"), size: 19_087_174,
+             sha256: "4a256260f1140501e6a37380e2f4f6c4a0f831cc906f331c5a21e56dc5180bda"),
+    ]
 
-    /// American English voices, best first. Chosen from Kokoro's own grades and automatic naturalness scores;
-    /// the whispering and lowest-rated voices are left out.
+    /// Voices, best first by automatic naturalness score.
     static let voices: [Voice] = [
-        Voice(id: "af_heart", name: "Heart", isFemale: true, sha256: "d583ccff3cdca2f7fae535cb998ac07e9fcb90f09737b9a41fa2734ec44a8f0b"),
-        Voice(id: "af_bella", name: "Bella", isFemale: true, sha256: "f69d836209b78eb8c66e75e3cda491e26ea838a3674257e9d4e5703cbaf55c8b"),
-        Voice(id: "af_kore", name: "Kore", isFemale: true, sha256: "9be5221b6a941c04b561959b8ff0b06e809444dcc4ab7e75a7b23606f691819e"),
-        Voice(id: "af_sarah", name: "Sarah", isFemale: true, sha256: "4409fbc125afabacc615d94db5398d847006a737b0247d6892b7a9a0007a2f0a"),
-        Voice(id: "af_aoede", name: "Aoede", isFemale: true, sha256: "4a004c33430762e2461eedb2013fad808ef4ab3121f5300f554476caf58d8361"),
-        Voice(id: "am_michael", name: "Michael", isFemale: false, sha256: "1d1f21dd8da39c30705cd4c75d039d265e9bc4a2a93ed09bc9e1b1225eb95ba1"),
-        Voice(id: "am_fenrir", name: "Fenrir", isFemale: false, sha256: "c27989f741f7ee34d273a39d8a595cc0837d35f5ced9a29b7cc162614616df43"),
-        Voice(id: "am_puck", name: "Puck", isFemale: false, sha256: "fcf73c989033e9233e0b98713eca600c8c74dcc1614b37009d5450ff4a2274a0"),
+        Voice(id: "george", name: "George", source: .studioRecording, size: 3_121_156,
+              sha256: "9b06e8d3646331636a84c24845c1593d9eb246bd0da7840747d3b36031bc5151"),
+        Voice(id: "mary", name: "Mary", source: .studioRecording, size: 3_096_580,
+              sha256: "1740b9d73afa4a0529776497e46be8c7915663fabf5a18f3a7c526e6d9bef109"),
+        Voice(id: "jane", name: "Jane", source: .studioRecording, size: 3_686_404,
+              sha256: "e59573117c9691d678b8e33a06dc8b9aa0d144bbce053e484130318c44a12268"),
+        Voice(id: "eve", name: "Eve", source: .studioRecording, size: 3_268_612,
+              sha256: "365e49642468345193c24d1a2ab9983dc2aac753c758d1fb8cb681742906f93e"),
+        Voice(id: "anna", name: "Anna", source: .studioRecording, size: 3_907_588,
+              sha256: "f3ad084cdc6205763760c2dad0c0412a02cc6000ae3daee1786c7b86a79229cd"),
+        Voice(id: "eponine", name: "Eponine", source: .studioRecording, size: 3_465_220,
+              sha256: "f0e93f1f629a6bed3b69d589d209cf1d4d9a9458cc17838b293f38e52fdf675e"),
+        Voice(id: "vera", name: "Vera", source: .studioRecording, size: 3_366_916,
+              sha256: "7a3ebbf5dfd9e5460421d4b0f4e79c9a7e84d82bc2b7e8a90c8336fa3bd817b4"),
+        Voice(id: "michael", name: "Michael", source: .studioRecording, size: 3_637_252,
+              sha256: "abe2e708f6ce6c940e1a033e71337bf622a5619d8c749e79858fc9e8703f6731"),
+        Voice(id: "fantine", name: "Fantine", source: .studioRecording, size: 3_268_612,
+              sha256: "6a5dabb9ca3734942e996b28ec851bebfcaecfb53543331fc1204a7d5de8b002"),
+        Voice(id: "azelma", name: "Azelma", source: .studioRecording, size: 3_981_316,
+              sha256: "cef7ae49ac00f04bdfb087182092cd8364662c8df452cfad9c56496b37e24715"),
+        Voice(id: "bill_boerst", name: "Bill", source: .audiobookNarrator, size: 3_366_916,
+              sha256: "e8363bb705847a0749aad4a40eb612c4eea6b47fe26dafd6ea37815a0e470857"),
+        Voice(id: "caro_davy", name: "Caro", source: .audiobookNarrator, size: 2_629_636,
+              sha256: "ffcac16ad0324f1c7d1b3bd4453ee10023929841bf085e2813b9429d5c4b61be"),
+        Voice(id: "peter_yearsley", name: "Peter", source: .audiobookNarrator, size: 1_867_780,
+              sha256: "7f31598e4f199c4f9df2af532ac0ad29cdd2d92c78f9bd6b32f46e1e388e8684"),
+        Voice(id: "alba", name: "Alba", source: .voiceActor, size: 3_096_580,
+              sha256: "1e42a1b340f766e3d60c9e9a8db255f98e8b2846bae4c508a4a67dbe111e5a00"),
+        Voice(id: "charles", name: "Charles", source: .studioRecording, size: 3_096_580,
+              sha256: "3200cd37013513b8c6ba1b722366429224a30dfaa5bd49036365a3e782297d34"),
+        Voice(id: "paul", name: "Paul", source: .studioRecording, size: 3_489_796,
+              sha256: "fa84e90f5ee9c83a44ee156f48a3187f544be45aae97b3a1dc5df2232509e183"),
+        Voice(id: "stuart_bell", name: "Stuart", source: .audiobookNarrator, size: 2_629_636,
+              sha256: "b270ede3ecc0003d3ccce67174a691e61ae520d539c4e7ad98001d46263b3665"),
     ]
 
     static let defaultVoice = voices[0]
@@ -66,29 +100,15 @@ nonisolated enum NeuralVoiceCatalog {
         voices.first { $0.id == id }
     }
 
-    /// Model and voices together, for the download size.
-    static var downloadSize: Int64 { model.size + voices.reduce(0) { $0 + $1.file.size } }
+    /// Models and voices together, for the download size.
+    static var downloadSize: Int64 { models.reduce(0) { $0 + $1.size } + voices.reduce(0) { $0 + $1.size } }
 
-    /// Kokoro writes 24 kHz mono audio.
-    static let sampleRate = 24_000.0
+    /// Pocket TTS writes 24 kHz mono audio.
+    static let sampleRate = PocketSynthesizer.sampleRate
 
     /// Whether the natural voices can read a book in `language`. They speak English only.
     static func supports(language: String?) -> Bool {
         guard let language, !language.isEmpty else { return true }
         return language.lowercased().hasPrefix("en")
     }
-
-    /// Phoneme symbols to Kokoro's token IDs (from the model's `tokenizer.json`).
-    static let vocabulary: [Character: Int64] = [
-        "$": 0, ";": 1, ":": 2, ",": 3, ".": 4, "!": 5, "?": 6, "—": 9, "…": 10, "\"": 11, "(": 12, ")": 13, "“": 14,
-        "”": 15, " ": 16, "\u{0303}": 17, "ʣ": 18, "ʥ": 19, "ʦ": 20, "ʨ": 21, "ᵝ": 22, "ꭧ": 23, "A": 24, "I": 25, "O": 31,
-        "Q": 33, "S": 35, "T": 36, "W": 39, "Y": 41, "ᵊ": 42, "a": 43, "b": 44, "c": 45, "d": 46, "e": 47, "f": 48, "h": 50,
-        "i": 51, "j": 52, "k": 53, "l": 54, "m": 55, "n": 56, "o": 57, "p": 58, "q": 59, "r": 60, "s": 61, "t": 62, "u": 63,
-        "v": 64, "w": 65, "x": 66, "y": 67, "z": 68, "ɑ": 69, "ɐ": 70, "ɒ": 71, "æ": 72, "β": 75, "ɔ": 76, "ɕ": 77, "ç": 78,
-        "ɖ": 80, "ð": 81, "ʤ": 82, "ə": 83, "ɚ": 85, "ɛ": 86, "ɜ": 87, "ɟ": 90, "ɡ": 92, "ɥ": 99, "ɨ": 101, "ɪ": 102,
-        "ʝ": 103, "ɯ": 110, "ɰ": 111, "ŋ": 112, "ɳ": 113, "ɲ": 114, "ɴ": 115, "ø": 116, "ɸ": 118, "θ": 119, "œ": 120,
-        "ɹ": 123, "ɾ": 125, "ɻ": 126, "ʁ": 128, "ɽ": 129, "ʂ": 130, "ʃ": 131, "ʈ": 132, "ʧ": 133, "ʊ": 135, "ʋ": 136,
-        "ʌ": 138, "ɣ": 139, "ɤ": 140, "χ": 142, "ʎ": 143, "ʒ": 147, "ʔ": 148, "ˈ": 156, "ˌ": 157, "ː": 158, "ʰ": 162,
-        "ʲ": 164, "↓": 169, "→": 171, "↗": 172, "↘": 173, "ᵻ": 177,
-    ]
 }

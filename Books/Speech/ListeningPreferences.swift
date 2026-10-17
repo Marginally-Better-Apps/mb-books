@@ -2,7 +2,7 @@ import Foundation
 
 /// The voice a reader picked.
 enum VoiceChoice: Codable, Hashable {
-    /// A Kokoro voice, by ID. English books only, once the model is downloaded.
+    /// A Pocket TTS voice, by ID. English books only, once the model is downloaded.
     case natural(String)
     /// The voices built into iOS, chosen per language.
     case system
@@ -35,7 +35,8 @@ struct ListeningPreferences: Equatable {
     }
 
     var naturalVoice: NeuralVoiceCatalog.Voice? {
-        if case .natural(let id) = voice { NeuralVoiceCatalog.voice(id: id) } else { nil }
+        // A voice from an earlier model (Kokoro) becomes the default natural voice.
+        if case .natural(let id) = voice { NeuralVoiceCatalog.voice(id: id) ?? NeuralVoiceCatalog.defaultVoice } else { nil }
     }
 
     func systemVoice(for language: String?) -> String? {

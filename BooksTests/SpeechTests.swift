@@ -320,74 +320,72 @@ final class ScanLayoutTests: XCTestCase {
     }
 }
 
-final class PronunciationTests: XCTestCase {
-    private static let g2p: EnglishG2P = {
-        let bundle = Bundle(for: EnglishG2P.self)
-        return try! EnglishG2P.load(
-            gold: bundle.url(forResource: "us_gold", withExtension: "json")!,
-            silver: bundle.url(forResource: "us_silver", withExtension: "json")!,
-            fallback: bundle.url(forResource: "g2p-en-us", withExtension: "safetensors"))
-    }()
+final class PocketTextTests: XCTestCase {
+    private static let tokenizer = try! PocketTokenizer(url: Bundle(for: PocketSynthesizer.self).url(forResource: "pocket-tokenizer", withExtension: "json")!)
 
-    /// Expected output from misaki (hexgrad/misaki@fba1236) for the same text, except where noted.
-    func testMatchesMisaki() throws {
-        guard EnglishG2P.hasTagger else { throw XCTSkip("This simulator has no English part-of-speech model") }
-        let cases = [
-            ("It was the best of times, it was the worst of times.",
-             "ˌɪt wʌz ðə bˈɛst ʌv tˈImz, ɪt wʌz ðə wˈɜɹst ʌv tˈImz."),
-            ("Mr. Bennet was among the earliest of those who waited on Mr. Bingley.",
-             "mˈɪstəɹ bˈɛnət wʌz əmˈʌŋ ði ˈɜɹliᵻst ʌv ðOz hˌu wˈATᵻd ˌɔn mˈɪstəɹ bˈɪŋli."),
-            ("\"I don't know,\" she said, \"but I'll find out tomorrow.\"",
-             "“ˌI dˈOnt nˈO,” ʃi sˈɛd, “bˌʌt ˌIl fˈInd ˈWt təmˈɑɹO.”"),
-            ("The FBI and NASA met in Washington, D.C. on the 21st of June.",
-             "ði ˌɛfbˌiˈI ænd nˈæsə mˈɛt ɪn wˈɔʃɪŋtən, dˌisˈi ˌɔn ðə twˈɛnti fˈɜɹst ʌv ʤˈun."),
-            ("Hermione looked at Harry, who was reading the letter from Dumbledore.",
-             "hˈɜɹmiˌOn lˈʊkt æt hˈɛɹi, hˌu wʌz ɹˈidɪŋ ðə lˈɛTəɹ fɹʌm dˈʌmᵊldˌɔɹ."),
-            // Tagger models differ between OS builds, so only unambiguous heteronyms are compared.
-            ("The record shows that I will record the song.", "ðə ɹˈɛkəɹd ʃˈOz ðæt ˌI wɪl ɹəkˈɔɹd ðə sˈɔŋ."),
-            ("It's a well-known fact that co-operation is key.",
-             "ˌɪts ɐ wˌɛlnˈOn fˈækt ðæt kˌOˌɑpəɹˈAʃən ɪz kˈi."),
-            // misaki reads years as "nineteen hundred eighty-four"; this reads them as people say them.
-            ("In 1984, prices rose by 3.5% a year.",
-             "ɪn nˌIntˈin ˈATi fˈɔɹ, pɹˈIsᵻz ɹˈOz bI θɹˈi pYnt fˈIv pəɹsˈɛnt ɐ jˈɪɹ."),
-            // misaki reads "10:30" as letters; this reads clock times.
-            ("He paid $45.50 at 10:30.", "hˌi pˈAd fˈɔɹTi fˈIv dˈɑləɹz ænd fˈɪfti sˈɛnts æt tˈɛn θˈɜɹTi."),
-        ]
-        for (text, expected) in cases {
-            XCTAssertEqual(Self.g2p.phonemize(text), expected, text)
+    /// Token IDs from Hugging Face `tokenizers` for the same tokenizer.json.
+    func testTokenizerMatchesTheReference() throws {
+        struct Case: Decodable { let text: String; let ids: [Int] }
+        let url = try XCTUnwrap(Bundle(for: Self.self).url(forResource: "pocket-tokenizer-cases", withExtension: "json"))
+        let cases = try JSONDecoder().decode([Case].self, from: Data(contentsOf: url))
+        XCTAssertGreaterThan(cases.count, 30)
+        for test in cases {
+            XCTAssertEqual(Self.tokenizer.encode(test.text), test.ids, test.text)
         }
     }
 
-    /// Without Apple's tagger, closed word classes and context still pick the right pronunciations.
-    func testPronouncesFunctionWordsWithoutTheTagger() throws {
-        let bundle = Bundle(for: EnglishG2P.self)
-        let g2p = try EnglishG2P.load(
-            gold: XCTUnwrap(bundle.url(forResource: "us_gold", withExtension: "json")),
-            silver: XCTUnwrap(bundle.url(forResource: "us_silver", withExtension: "json")), fallback: nil)
-        g2p.usesTagger = false
-        XCTAssertEqual(g2p.phonemize("I will record a song in the studio."), "ˌI wɪl ɹəkˈɔɹd ɐ sˈɔŋ ɪn ðə stˈudiO.")
-        XCTAssertEqual(g2p.phonemize("The record is in."), "ðə ɹˈɛkəɹd ɪz ˈɪn.")
-        XCTAssertTrue(g2p.phonemize("She had read the letter.").contains("ɹˈɛd"))
+    func testDecodingRoundTrips() {
+        for text in ["Hello world.", "Café owners in São Paulo.", "Emoji 😀 test.", "naïve, isn't it?"] {
+            XCTAssertEqual(Self.tokenizer.decode(Self.tokenizer.encode(text)), text)
+        }
     }
 
-    func testPastTenseReadFromContext() throws {
-        guard EnglishG2P.hasTagger else { throw XCTSkip("This simulator has no English part-of-speech model") }
-        XCTAssertTrue(Self.g2p.phonemize("She had read the letter.").contains("ɹˈɛd"))
-        XCTAssertTrue(Self.g2p.phonemize("She read the book yesterday.").contains("ɹˈɛd"))
-        XCTAssertTrue(Self.g2p.phonemize("She will read the book.").contains("ɹˈid"))
+    func testCleaningUsesTypographyTheModelKnows() {
+        // Curly quotes make the model drop words, so they become straight ones.
+        XCTAssertEqual(PocketText.clean("“You can’t stay,” she said…", tokenizer: Self.tokenizer), "\"You can't stay,\" she said...")
+        XCTAssertEqual(PocketText.clean("Wait , what ?", tokenizer: Self.tokenizer), "Wait, what?")
+        XCTAssertEqual(PocketText.clean("He left (quietly) at dawn.", tokenizer: Self.tokenizer), "He left, quietly, at dawn.")
+        XCTAssertEqual(PocketText.clean("A naïve plan.", tokenizer: Self.tokenizer), "A naive plan.")
+        XCTAssertEqual(PocketText.clean("See § 4 • now", tokenizer: Self.tokenizer), "See 4 now")
+        let cleaned = PocketText.clean("«Ça va?» — “Oui.” [1] and/or ½ 日本", tokenizer: Self.tokenizer)
+        let bytes = Set((0...255).map { Self.tokenizer.encode(String(format: "<0x%02X>", $0)) }.compactMap { $0.count == 1 ? $0[0] : nil })
+        XCTAssertTrue(Self.tokenizer.encode(cleaned).allSatisfy { !bytes.contains($0) }, cleaned)
     }
 
-    func testFallbackModelMatchesItsReference() throws {
-        let url = try XCTUnwrap(Bundle(for: G2PFallback.self).url(forResource: "g2p-en-us", withExtension: "safetensors"))
-        let model = try G2PFallback(url: url)
-        // Greedy decoding from the original PyTorch model.
-        XCTAssertEqual(model.phonemes(for: "Daenerys"), "dˈAnəɹiz")
-        XCTAssertEqual(model.phonemes(for: "Okonkwo"), "ˌOkˈɑŋkwO")
-        XCTAssertEqual(model.phonemes(for: "Aragorn"), "ˈɛɹəɡˌɔɹn")
+    func testPreparesTextLikeKyutai() {
+        XCTAssertEqual(PocketText.prepare("hello there").text, "Hello there.")
+        XCTAssertEqual(PocketText.prepare("He said, \"wait\"").text, "He said, \"wait\".")
+        XCTAssertEqual(PocketText.prepare("And then —").text, "And then.")
+        XCTAssertEqual(PocketText.prepare("Really?\"").text, "Really?\"")
+        XCTAssertEqual(PocketText.prepare("Go.").framesAfterEnd, 5, "Short phrases keep more frames after the end")
+        XCTAssertEqual(PocketText.prepare("This one is long enough.").framesAfterEnd, 3)
     }
 
-    func testShoutingIsNotSpelledOut() {
-        XCTAssertFalse(Self.g2p.phonemize("THE END OF THE WORLD").contains("ˌɛ"))
+    func testLongTextSplitsAtSentencesThenClauses() {
+        let sentence = "The rain had not stopped for three days and the river kept rising."
+        let chunks = PocketText.chunks(Array(repeating: sentence, count: 6).joined(separator: " "), tokenizer: Self.tokenizer)
+        XCTAssertGreaterThan(chunks.count, 1)
+        for chunk in chunks {
+            XCTAssertLessThanOrEqual(Self.tokenizer.encode(chunk).count, PocketText.maximumTokens, chunk)
+            XCTAssertTrue(chunk.hasSuffix("."), chunk)
+        }
+        let clauses = Array(repeating: "one more thing to say about the weather", count: 8).joined(separator: ", ") + "."
+        XCTAssertTrue(PocketText.chunks(clauses, tokenizer: Self.tokenizer).allSatisfy {
+            Self.tokenizer.encode($0).count <= PocketText.maximumTokens
+        })
+        XCTAssertEqual(PocketText.chunks("Short.", tokenizer: Self.tokenizer), ["Short."])
+    }
+
+    func testNumbersAreReadAsWords() {
+        XCTAssertEqual(SpokenEnglish.normalize("In 1984, prices rose by 3.5% a year."),
+                       "In nineteen eighty-four, prices rose by three point five percent a year.")
+        XCTAssertEqual(SpokenEnglish.normalize("He paid $45.50 at 10:30."), "He paid forty-five dollars and fifty cents at ten thirty.")
+        XCTAssertEqual(SpokenEnglish.normalize("The 21st of June, 10:00, 9:05."), "The twenty-first of June, ten o'clock, nine oh five.")
+        XCTAssertEqual(SpokenEnglish.normalize("The 1990s and 1,000,000 people."), "The nineteen nineties and one million people.")
+        XCTAssertEqual(SpokenEnglish.normalize("Call 5551234567 for £3."), "Call five five five one two three four five six seven for three pounds.")
+        XCTAssertEqual(SpokenEnglish.normalize("Salt & pepper"), "Salt and pepper")
+        XCTAssertEqual(SpokenEnglish.normalize("THE END OF THE WORLD"), "the end of the world")
+        XCTAssertEqual(SpokenEnglish.normalize("NASA and the FBI"), "NASA and the FBI")
     }
 
     func testNumberWords() {
@@ -402,14 +400,6 @@ final class PronunciationTests: XCTestCase {
         XCTAssertEqual(NumberWords.year(2005), "two thousand five")
         XCTAssertEqual(NumberWords.year(2024), "twenty twenty-four")
     }
-
-    func testPhonemesStayWithinKokorosVocabulary() {
-        let text = "Café owners in São Paulo charged €3.20 — “outrageous!” — for 2 croissants at 9:05; naïve, isn't it?"
-        let phonemes = Self.g2p.phonemize(text)
-        let unknown = phonemes.unicodeScalars.filter { NeuralVoiceCatalog.vocabulary[Character($0)] == nil }
-        XCTAssertTrue(unknown.isEmpty, "Unknown symbols: \(String(String.UnicodeScalarView(unknown)))")
-        XCTAssertFalse(phonemes.isEmpty)
-    }
 }
 
 @MainActor
@@ -417,11 +407,12 @@ final class ListeningStorageTests: XCTestCase {
     func testEveryNaturalVoiceHasABundledPreviewAndPinnedChecksum() {
         XCTAssertEqual(Set(NeuralVoiceCatalog.voices.map(\.id)).count, NeuralVoiceCatalog.voices.count)
         for voice in NeuralVoiceCatalog.voices {
-            XCTAssertNotNil(Bundle(for: EnglishG2P.self).url(forResource: "preview-\(voice.id)", withExtension: "m4a"), voice.id)
+            XCTAssertNotNil(Bundle(for: PocketSynthesizer.self).url(forResource: "preview-\(voice.id)", withExtension: "m4a"), voice.id)
             XCTAssertEqual(voice.sha256.count, 64)
         }
-        XCTAssertEqual(NeuralVoiceCatalog.model.name, "model_quantized.onnx")
-        XCTAssertLessThan(NeuralVoiceCatalog.downloadSize, 100_000_000, "The voices download stays under 100 MB")
+        XCTAssertEqual(NeuralVoiceCatalog.models.map(\.name), ["FlowLM.mlmodelc.aar", "Mimi.mlmodelc.aar"])
+        XCTAssertTrue(NeuralVoiceCatalog.models.allSatisfy { $0.sha256.count == 64 })
+        XCTAssertLessThan(NeuralVoiceCatalog.downloadSize, 160_000_000, "The voices download stays under 160 MB")
     }
 
     func testContentsAreNamedFromTheTableOfContents() {
@@ -461,16 +452,18 @@ final class ListeningStorageTests: XCTestCase {
 
     func testPreferencesPersist() throws {
         let defaults = try XCTUnwrap(UserDefaults(suiteName: "SpeechTests-\(UUID().uuidString)"))
-        XCTAssertEqual(ListeningPreferences.load(from: defaults).naturalVoice?.name, "Heart", "Heart is the default voice")
+        XCTAssertEqual(ListeningPreferences.load(from: defaults).naturalVoice?.name, "George", "George is the default voice")
         var preferences = ListeningPreferences()
         preferences.speed = 1.5
-        preferences.voice = .natural("am_michael")
+        preferences.voice = .natural("michael")
         preferences.setSystemVoice("com.apple.voice.premium.en-US.Zoe", for: "en-GB")
         preferences.save(to: defaults)
         var loaded = ListeningPreferences.load(from: defaults)
         XCTAssertEqual(loaded, preferences)
         XCTAssertEqual(loaded.systemVoice(for: "en"), "com.apple.voice.premium.en-US.Zoe")
         XCTAssertEqual(loaded.naturalVoice?.name, "Michael")
+        loaded.voice = .natural("af_heart")
+        XCTAssertEqual(loaded.naturalVoice?.name, "George", "A Kokoro voice from an earlier version becomes the default")
         loaded.voice = .system
         XCTAssertNil(loaded.naturalVoice)
     }
@@ -492,27 +485,32 @@ final class ListeningStorageTests: XCTestCase {
     }
 }
 
-/// Renders speech with the real Kokoro model. Skipped unless `TEST_RUNNER_MB_KOKORO_DIR` points at a folder
-/// with `model_quantized.onnx` and `af_heart.bin` (the model isn't downloaded in CI).
-final class KokoroIntegrationTests: XCTestCase {
-    func testSynthesizesIntelligibleSpeech() throws {
-        guard let directory = ProcessInfo.processInfo.environment["MB_KOKORO_DIR"].map({ URL(filePath: $0) }) else {
-            throw XCTSkip("Set TEST_RUNNER_MB_KOKORO_DIR to run")
+/// Renders speech with the real Pocket TTS models. Skipped unless `TEST_RUNNER_MB_VOICE_MODEL_DIR` points at a folder
+/// with `FlowLM.mlmodelc`, `Mimi.mlmodelc`, and `voices/george.bin` (the models aren't downloaded in CI).
+final class PocketIntegrationTests: XCTestCase {
+    func testSynthesizesSpeech() throws {
+        if ProcessInfo.processInfo.environment["SIMULATOR_DEVICE_NAME"] != nil {
+            throw XCTSkip("The Simulator can't load multifunction Core ML models; run on a device")
         }
-        let g2p = try EnglishG2P.bundled()
-        let synthesizer = try KokoroSynthesizer(modelURL: directory.appending(path: NeuralVoiceCatalog.model.name), g2p: g2p)
-        try synthesizer.loadVoice(id: "af_heart", from: directory.appending(path: "af_heart.bin"))
-        let text = "It was the best of times, it was the worst of times. Hermione paid $45.50 for the 21st edition in 1984."
+        guard let directory = ProcessInfo.processInfo.environment["MB_VOICE_MODEL_DIR"].map({ URL(filePath: $0) }) else {
+            throw XCTSkip("Set TEST_RUNNER_MB_VOICE_MODEL_DIR to run")
+        }
+        let tokenizer = try PocketTokenizer(url: XCTUnwrap(Bundle(for: PocketSynthesizer.self).url(forResource: "pocket-tokenizer", withExtension: "json")))
+        let synthesizer = try PocketSynthesizer(directory: directory, tokenizer: tokenizer)
+        try synthesizer.loadVoice(id: "george", from: directory.appending(path: "voices/george.bin"))
+        let text = "“It was the best of times,” he said, “it was the worst of times.” Hermione paid $45.50 for the 21st edition in 1984."
+        _ = try synthesizer.synthesize("Warming up.", voice: "george")
         let started = Date.now
-        let samples = try synthesizer.synthesize(text, voice: "af_heart")
+        let samples = try synthesizer.synthesize(text, voice: "george")
         let elapsed = Date.now.timeIntervalSince(started)
         let seconds = Double(samples.count) / NeuralVoiceCatalog.sampleRate
-        print("Kokoro rendered \(seconds) s of audio in \(elapsed) s (\(seconds / elapsed)× real time)")
-        XCTAssertGreaterThan(seconds, 4)
-        XCTAssertLessThan(seconds, 20)
+        print("Pocket TTS rendered \(seconds) s of audio in \(elapsed) s (\(seconds / elapsed)× real time)")
+        XCTAssertGreaterThan(seconds, 5)
+        XCTAssertLessThan(seconds, 25)
         XCTAssertGreaterThan(samples.map(abs).max() ?? 0, 0.05, "Not silent")
+        XCTAssertThrowsError(try synthesizer.synthesize(text, voice: "george", isCancelled: { true }))
         // Save for listening or transcription.
-        if let output = ProcessInfo.processInfo.environment["MB_KOKORO_OUTPUT"] {
+        if let output = ProcessInfo.processInfo.environment["MB_VOICE_OUTPUT"] {
             let format = try XCTUnwrap(NeuralSpeechBackend.format)
             let file = try AVAudioFile(forWriting: URL(filePath: output), settings: format.settings)
             try file.write(from: XCTUnwrap(NeuralSpeechBackend.buffer(samples, format: format)))

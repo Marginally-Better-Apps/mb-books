@@ -19,7 +19,7 @@ Tap the headphones in the reader (or choose **Listen from Here** on a selection)
 
 One voice list holds two kinds of voices, each with a sample button:
 
-- **Natural voices** are [Kokoro-82M](https://huggingface.co/hexgrad/Kokoro-82M) (8-bit), rendered on the CPU with ONNX Runtime a few sentences ahead of the listener. The 97 MB download (model and eight voices) happens once; samples are bundled, so voices can be heard first. In testing it runs about 6× faster than real time on two cores of an M2 and should stay ahead of the listener on every iPhone that runs iOS 26. They read English books.
+- **Natural voices** are Kyutai's [Pocket TTS](https://huggingface.co/kyutai/pocket-tts) (english_2026-09), run with Core ML a few sentences ahead of the listener: the transformer on the GPU, the audio decoder on the CPU, overlapping frame by frame. The 152 MB download (models and 17 voices) happens once; samples are bundled, so voices can be heard first. On an M2 it renders about 7× faster than real time. They read English books.
 - **Apple voices** (`AVSpeechSynthesizer`) need no download, read every language, and highlight word by word. Enhanced and Premium voices from Settings › Accessibility › Spoken Content appear when installed.
 
 Choosing a voice never starts playback: a playing book switches voices at the current sentence, and a paused one stays paused.
@@ -70,18 +70,18 @@ Media overlays (publisher narration) are parsed from the manifest but not played
 - `Books/Reader`: `ReaderModel` (state and annotations), `ReaderViewController` (loading, the JS bridge, and chapter preloading across a few `ChapterView` web views), page-turn presenters in `PageTurn.swift` and `CurlPagePresenter.swift`, and SwiftUI chrome and sheets. `Web/reader.js` paginates and handles locations, highlights, search, and taps in an isolated content world. Fixed layouts load generated wrapper pages that scale each page in an iframe.
 - `Books/Models`: SwiftData models (`Book`, `BookCollection`, `Annotation`, `ReadingDay`) and `Locator`.
 
-- `Books/Speech`: read aloud. `SpeechExtractor` and `ScanReader` turn documents into utterances with text offsets that `reader.js` highlights; `ListeningSession` drives an Apple-voice or natural-voice backend and follows along in the reader. `Neural/` holds the Kokoro runner, the Swift port of misaki's English G2P, and the model download store.
+- `Books/Speech`: read aloud. `SpeechExtractor` and `ScanReader` turn documents into utterances with text offsets that `reader.js` highlights; `ListeningSession` drives an Apple-voice or natural-voice backend and follows along in the reader. `Neural/` holds the Pocket TTS runner, its tokenizer, the English text normalizer, and the model download store. `scripts/pocket-tts` converts the model to Core ML and renders the bundled samples.
 
-Requires Xcode 26 and iOS 26 or newer. The only third-party dependency is ONNX Runtime (Swift package), for natural voices. `project.yml` is the source of truth for project settings. Run `xcodegen generate` after changing it. Open `MBBooks.xcodeproj` and run the shared `MBBooks` scheme. For direct device runs in Xcode, select your development team and enable signing in your local build settings.
+Requires Xcode 26 and iOS 26 or newer. There are no third-party code dependencies. `project.yml` is the source of truth for project settings. Run `xcodegen generate` after changing it. Open `MBBooks.xcodeproj` and run the shared `MBBooks` scheme. For direct device runs in Xcode, select your development team and enable signing in your local build settings.
 
 ## Testing
 
 `ios-test.sh` runs the XCTest suites on the newest available iPhone simulator. Set `MB_TEST_DESTINATION` to choose another one.
 
 - `BooksTests`: unit tests for ZIP, parsing, EPUB 2/3/3.4 layouts, fallbacks, DRM detection, font deobfuscation, import, deduplication, search offsets, spreads, progress, reading streaks, and preferences.
-- `BooksTests/SpeechTests`: content extraction (page numbers, notes, front matter, hidden text, running heads), text offsets matching the reader, OCR layout, pronunciation checked against misaki, and audiobook storage. `KokoroIntegrationTests` renders real speech when `TEST_RUNNER_MB_KOKORO_DIR` points at a folder with `model_quantized.onnx` and `af_heart.bin`.
+- `BooksTests/SpeechTests`: content extraction (page numbers, notes, front matter, hidden text, running heads), text offsets matching the reader, OCR layout, the Pocket TTS tokenizer (checked against Hugging Face `tokenizers`), number reading, and audiobook storage. `PocketIntegrationTests` renders real speech when `TEST_RUNNER_MB_VOICE_MODEL_DIR` points at a folder with the installed models (`FlowLM.mlmodelc`, `Mimi.mlmodelc`, and `voices/*.bin`).
 - `BooksUITests/LibraryFlowTests`: opens a generated EPUB 3.4 book, pages across chapters, follows nested TOC links, switches themes, bookmarks, reopens at the saved position, and checks Settings.
-- `BooksUITests/ScreenshotTour`: a development aid, skipped by default. Run it with `TEST_RUNNER_MB_TOUR_OUTPUT=/tmp/shots` (and optionally `TEST_RUNNER_MB_TOUR_DIR=<folder of .epub files>`) to screenshot every book and the reader sheets. `testNaturalVoiceTour` also needs `TEST_RUNNER_MB_VOICE_MODEL_DIR` (a folder with `model_quantized.onnx` and `voices/*.bin`) and points the app at that model in Debug builds. `testListenToImportedBooks` listens to the books in `TEST_RUNNER_MB_LISTEN_DIR`, and `SpeechReportTests` writes what would be read from them to `TEST_RUNNER_MB_SPEECH_REPORT`.
+- `BooksUITests/ScreenshotTour`: a development aid, skipped by default. Run it with `TEST_RUNNER_MB_TOUR_OUTPUT=/tmp/shots` (and optionally `TEST_RUNNER_MB_TOUR_DIR=<folder of .epub files>`) to screenshot every book and the reader sheets. `testNaturalVoiceTour` also needs `TEST_RUNNER_MB_VOICE_MODEL_DIR` (a folder with `FlowLM.mlmodelc`, `Mimi.mlmodelc`, and `voices/*.bin`) and points the app at that model in Debug builds. `testListenToImportedBooks` listens to the books in `TEST_RUNNER_MB_LISTEN_DIR`, and `SpeechReportTests` writes what would be read from them to `TEST_RUNNER_MB_SPEECH_REPORT`.
 
 For manual testing, launch the app with `-import-directory <folder>` to import every EPUB in a folder at startup. UI tests use `-ui-testing -seed-sample-book` for an isolated, in-memory library.
 

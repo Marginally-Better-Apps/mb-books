@@ -11,16 +11,16 @@ struct AcknowledgementsView: View {
     }
 
     static let components: [Component] = [
-        Component(name: "Kokoro-82M", author: "hexgrad", license: "Apache License 2.0",
-                  url: URL(string: "https://huggingface.co/hexgrad/Kokoro-82M")!),
-        Component(name: "Kokoro-82M ONNX", author: "onnx-community", license: "Apache License 2.0",
-                  url: URL(string: "https://huggingface.co/onnx-community/Kokoro-82M-v1.0-ONNX")!),
-        Component(name: "misaki pronunciation dictionaries", author: "hexgrad", license: "Apache License 2.0",
-                  url: URL(string: "https://github.com/hexgrad/misaki")!),
-        Component(name: "graphemes_to_phonemes_en_us", author: "Peter Reid", license: "Apache License 2.0",
-                  url: URL(string: "https://huggingface.co/PeterReid/graphemes_to_phonemes_en_us")!),
-        Component(name: "ONNX Runtime", author: "Microsoft", license: "MIT License",
-                  url: URL(string: "https://github.com/microsoft/onnxruntime")!),
+        Component(name: "Pocket TTS", author: "Kyutai", license: "CC BY 4.0",
+                  url: URL(string: "https://huggingface.co/kyutai/pocket-tts")!),
+        Component(name: "Pocket TTS voices", author: "Kyutai", license: "CC0 and CC BY 4.0",
+                  url: URL(string: "https://huggingface.co/kyutai/tts-voices")!),
+        Component(name: "CSTR VCTK Corpus", author: "University of Edinburgh", license: "CC BY 4.0",
+                  url: URL(string: "https://datashare.ed.ac.uk/handle/10283/3443")!),
+        Component(name: "Alba MacKenna voice recordings", author: "Alba MacKenna", license: "CC BY 4.0",
+                  url: URL(string: "https://huggingface.co/kyutai/tts-voices/tree/main/alba-mackenna")!),
+        Component(name: "Voice-Zero (LibriVox narrators)", author: "Owen Tyme", license: "CC0",
+                  url: URL(string: "https://github.com/OwenTyme/voice-zero")!),
     ]
 
     var body: some View {
@@ -35,7 +35,7 @@ struct AcknowledgementsView: View {
                     }
                 }
             } footer: {
-                Text("Natural voices and pronunciation run on this device. The full license texts are in THIRD_PARTY_NOTICES.md in the MB Books repository.")
+                Text("Natural voices run on this device. The full license texts are in THIRD_PARTY_NOTICES.md in the MB Books repository.")
             }
         }
         .navigationTitle("Acknowledgements")

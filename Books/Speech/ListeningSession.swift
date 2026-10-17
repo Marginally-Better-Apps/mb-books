@@ -198,7 +198,7 @@ final class ListeningSession {
             backend = system
         case .natural(let natural):
             let store = NeuralVoiceStore.shared
-            backend = NeuralSpeechBackend(voice: natural, modelURL: store.modelURL, voiceURL: store.voiceURL(natural))
+            backend = NeuralSpeechBackend(voice: natural, directory: store.directory, voiceURL: store.voiceURL(natural))
         }
         backend.rate = preferences.speed
         backend.delegate = self
@@ -231,7 +231,7 @@ final class ListeningSession {
 
     /// Prepares the model before the first sentence is needed, if a natural voice will read.
     func prewarm() {
-        if case .natural = resolvedVoice { NeuralSpeechService.shared.prewarm(modelURL: NeuralVoiceStore.shared.modelURL) }
+        if case .natural = resolvedVoice { NeuralSpeechService.shared.prewarm(directory: NeuralVoiceStore.shared.directory) }
     }
 
     // MARK: - Controls
