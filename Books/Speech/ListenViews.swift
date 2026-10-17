@@ -109,37 +109,19 @@ struct ListenPill: View {
     }
 }
 
-/// Listening options: voice mode, voices, speed, Studio preparation, and what gets read.
+/// Listening options: the voice, speed, following along, and what gets read.
 struct ListenSettingsView: View {
     @Bindable var session: ListeningSession
 
     @Environment(\.dismiss) private var dismiss
-    @Environment(LibraryStore.self) private var library
 
     var body: some View {
         NavigationStack {
             Form {
-                Section {
-                    Picker("Voice", selection: $session.preferences.mode) {
-                        ForEach(ListeningMode.allCases) { mode in
-                            Text(mode.title).tag(mode)
-                        }
-                    }
-                    .pickerStyle(.segmented)
-                    .listRowBackground(Color.clear)
-                    .listRowInsets(EdgeInsets())
-                    .accessibilityIdentifier("listen.mode")
-                } footer: {
-                    Text(session.preferences.mode == .instant
-                         ? "Instant uses the voices on your device and starts right away."
-                         : "Studio uses a natural neural voice that runs on your device. Prepare a book ahead of time for the best experience.")
+                if session.supportsNaturalVoices {
+                    NaturalVoicesSection(session: session)
                 }
-
-                if session.preferences.mode == .instant {
-                    SystemVoiceSection(session: session)
-                } else {
-                    StudioSection(session: session)
-                }
+                SystemVoicesSection(session: session)
 
                 Section("Playback") {
                     Picker("Speed", selection: $session.preferences.speed) {
@@ -159,10 +141,10 @@ struct ListenSettingsView: View {
                     }
                     .accessibilityIdentifier("listen.contents")
                 } footer: {
-                    Text("Page numbers, note markers, running heads, and front and back matter like the copyright page and index are left out.")
+                    Text("Page numbers, notes, captions, code listings, and front and back matter like the copyright page and index are left out.")
                 }
             }
-            .navigationTitle("Listen")
+            .navigationTitle("Voice")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
@@ -172,84 +154,134 @@ struct ListenSettingsView: View {
             }
         }
         .presentationDetents([.large])
+        .onAppear { session.prewarm() }
+        .onDisappear { VoicePreview.shared.stop() }
     }
 }
 
-private struct SystemVoiceSection: View {
-    @Bindable var session: ListeningSession
+/// A row in the voice list: a preview button, the name, and a checkmark when chosen.
+private struct VoiceRow: View {
+    let name: String
+    let detail: String
+    let isSelected: Bool
+    let isPreviewing: Bool
+    let id: String
+    let preview: () -> Void
+    let select: () -> Void
 
-    private var voices: [AVSpeechSynthesisVoice] { SystemVoices.voices(for: session.language) }
+    var body: some View {
+        HStack(spacing: 12) {
+            Button(action: preview) {
+                Image(systemName: isPreviewing ? "stop.circle.fill" : "play.circle.fill")
+                    .font(.title2)
+                    .symbolRenderingMode(.hierarchical)
+                    .contentTransition(.symbolEffect(.replace))
+            }
+            .buttonStyle(.borderless)
+            .accessibilityLabel(isPreviewing ? "Stop Sample" : "Play Sample of \(name)")
+            .accessibilityIdentifier("voice.preview.\(id)")
+            Button(action: select) {
+                HStack {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(name).foregroundStyle(.primary)
+                        Text(detail).font(.caption).foregroundStyle(.secondary)
+                    }
+                    Spacer()
+                    if isSelected {
+                        Image(systemName: "checkmark").font(.body.weight(.semibold)).foregroundStyle(.tint)
+                    }
+                }
+                .contentShape(.rect)
+            }
+            .buttonStyle(.plain)
+            .accessibilityAddTraits(isSelected ? .isSelected : [])
+            .accessibilityIdentifier("voice.select.\(id)")
+        }
+    }
+}
+
+private struct NaturalVoicesSection: View {
+    @Bindable var session: ListeningSession
+    private var store: NeuralVoiceStore { .shared }
+    private var preview: VoicePreview { .shared }
 
     var body: some View {
         Section {
-            Picker("Voice", selection: Binding(
-                get: { SystemVoices.voice(for: session.language, preferred: session.preferences.systemVoice(for: session.language))?.identifier ?? "" },
-                set: { session.preferences.setSystemVoice($0, for: session.language) })) {
-                ForEach(voices, id: \.identifier) { voice in
-                    Text("\(voice.name) · \(Self.qualityName(voice.quality))").tag(voice.identifier)
-                }
+            if !store.isReady { VoiceModelRow() }
+            ForEach(NeuralVoiceCatalog.voices) { voice in
+                VoiceRow(
+                    name: voice.name, detail: voice.description,
+                    isSelected: session.resolvedVoice == .natural(voice),
+                    isPreviewing: preview.isPlaying(voice.id), id: voice.id,
+                    preview: {
+                        session.pause()
+                        preview.toggle(voice)
+                    },
+                    select: {
+                        session.preferences.voice = .natural(voice.id)
+                        if !store.isReady { store.download() }
+                    })
             }
-            .pickerStyle(.navigationLink)
-            .accessibilityIdentifier("listen.systemVoice")
+        } header: {
+            Text("Natural Voices")
+        } footer: {
+            Text("Natural voices run entirely on this device, so nothing you read is sent anywhere. They read English books.")
+        }
+        .onChange(of: store.state) { _, state in
+            if state == .ready { session.voiceDidChange() }
+        }
+    }
+}
+
+private struct SystemVoicesSection: View {
+    @Bindable var session: ListeningSession
+    private var preview: VoicePreview { .shared }
+
+    private var voices: [AVSpeechSynthesisVoice] { SystemVoices.voices(for: session.language) }
+
+    /// The Apple voice that reads, checked even when it's standing in for natural voices not yet downloaded.
+    private var selectedIdentifier: String? {
+        guard case .system(let identifier) = session.resolvedVoice else { return nil }
+        return SystemVoices.voice(for: session.language, preferred: identifier)?.identifier
+    }
+
+    var body: some View {
+        Section {
+            ForEach(voices, id: \.identifier) { voice in
+                VoiceRow(
+                    name: voice.name, detail: Self.detail(voice),
+                    isSelected: selectedIdentifier == voice.identifier,
+                    isPreviewing: preview.isPlaying(voice.identifier), id: voice.identifier,
+                    preview: {
+                        session.pause()
+                        preview.toggle(voice)
+                    },
+                    select: {
+                        session.preferences.setSystemVoice(voice.identifier, for: session.language)
+                        session.preferences.voice = .system
+                    })
+            }
+        } header: {
+            Text("Apple Voices")
         } footer: {
             if SystemVoices.hasOnlyCompactVoices(for: session.language) {
-                Text("For a more natural voice, download an Enhanced or Premium voice in Settings › Accessibility › Spoken Content › Voices.")
+                Text("For more natural Apple voices, download Enhanced or Premium voices in Settings › Accessibility › Spoken Content › Voices.")
             }
         }
     }
 
-    static func qualityName(_ quality: AVSpeechSynthesisVoiceQuality) -> String {
-        switch quality {
+    static func detail(_ voice: AVSpeechSynthesisVoice) -> String {
+        let language = Locale.current.localizedString(forIdentifier: voice.language) ?? voice.language
+        let quality = switch voice.quality {
         case .premium: String(localized: "Premium")
         case .enhanced: String(localized: "Enhanced")
         default: String(localized: "Basic")
         }
+        return "\(language) · \(quality)"
     }
 }
 
-private struct StudioSection: View {
-    @Bindable var session: ListeningSession
-
-    @Environment(LibraryStore.self) private var library
-    private var store: NeuralVoiceStore { .shared }
-
-    var body: some View {
-        if !session.supportsStudio {
-            Section {
-                Label("Studio voices read English only, so this book uses Instant.", systemImage: "info.circle")
-                    .foregroundStyle(.secondary)
-            }
-        } else {
-            Section {
-                VoiceModelRow()
-                if store.isReady {
-                    Picker("Voice", selection: $session.preferences.neuralVoiceID) {
-                        ForEach(NeuralVoiceCatalog.voices) { voice in
-                            Text(voice.name).tag(voice.id)
-                        }
-                    }
-                    .accessibilityIdentifier("listen.studioVoice")
-                }
-            } footer: {
-                Text("Studio voices are Kokoro, an open model that runs entirely on this device. Nothing you read is sent anywhere.")
-            }
-            .onChange(of: store.state) { _, state in
-                if state == .ready { session.refreshMode() }
-            }
-            if store.isReady {
-                Section {
-                    PrepareAudiobookRow(
-                        bookID: session.book.id, title: session.book.title, author: session.book.author,
-                        voice: session.preferences.neuralVoice, storage: library.storage)
-                } footer: {
-                    Text("Preparing renders the whole book with this voice, so listening is instant and uses less battery. It continues in the background, and you can listen while it works.")
-                }
-            }
-        }
-    }
-}
-
-/// Downloads or shows the state of the Studio voice model.
+/// Downloads the natural voices, or shows that they're ready.
 struct VoiceModelRow: View {
     private var store: NeuralVoiceStore { .shared }
 
@@ -260,26 +292,26 @@ struct VoiceModelRow: View {
                 store.download()
             } label: {
                 HStack {
-                    Label("Download Studio Voice", systemImage: "arrow.down.circle")
+                    Label("Download Natural Voices", systemImage: "arrow.down.circle")
                     Spacer()
-                    Text(ByteCountFormatStyle().format(NeuralVoiceCatalog.model.size)).foregroundStyle(.secondary)
+                    Text(ByteCountFormatStyle().format(NeuralVoiceCatalog.downloadSize)).foregroundStyle(.secondary)
                 }
             }
             .accessibilityIdentifier("listen.downloadModel")
         case .downloading(let fraction):
             HStack {
                 ProgressView(value: fraction) {
-                    Text("Downloading Studio Voice")
+                    Text("Downloading Natural Voices")
                 } currentValueLabel: {
                     Text(fraction.formatted(.percent.precision(.fractionLength(0))))
                 }
                 Button("Cancel", systemImage: "xmark.circle.fill") { store.cancelDownload() }
                     .labelStyle(.iconOnly)
-                    .buttonStyle(.plain)
+                    .buttonStyle(.borderless)
                     .foregroundStyle(.secondary)
             }
         case .ready:
-            Label("Studio Voice Installed", systemImage: "checkmark.circle")
+            Label("Natural Voices Installed", systemImage: "checkmark.circle")
                 .foregroundStyle(.secondary)
         case .failed(let message):
             VStack(alignment: .leading, spacing: 6) {
@@ -290,84 +322,12 @@ struct VoiceModelRow: View {
     }
 }
 
-/// Starts, shows, and pauses preparing a book's Studio audiobook.
-struct PrepareAudiobookRow: View {
-    let bookID: UUID
-    let title: String
-    let author: String
-    let voice: NeuralVoiceCatalog.Voice
-    let storage: BookStorage
-
-    private var preparer: AudiobookPreparer { .shared }
-    @State private var preparedSize: Int64 = 0
-
-    var body: some View {
-        let job = preparer.job(for: bookID)
-        VStack(alignment: .leading, spacing: 8) {
-            switch job?.phase {
-            case .reading?, .rendering?, .queued?:
-                ProgressView(value: job?.fraction ?? 0) {
-                    Text(job?.phase == .queued ? "Waiting to Prepare" : job?.phase == .reading ? "Reading Book" : "Preparing Audiobook")
-                } currentValueLabel: {
-                    Text(Self.detail(job))
-                }
-                Button("Pause", systemImage: "pause.circle") { preparer.pause(bookID: bookID) }
-                    .accessibilityIdentifier("prepare.pause")
-            case .finished?:
-                Label("Audiobook Ready", systemImage: "checkmark.circle.fill")
-                    .foregroundStyle(.green)
-                storageLine
-            case .failed(let message)?:
-                Text(message).font(.footnote).foregroundStyle(.red)
-                startButton(String(localized: "Try Again"))
-            case .paused?:
-                ProgressView(value: job?.fraction ?? 0) { Text("Paused") }
-                startButton(String(localized: "Resume Preparing"))
-            case nil:
-                startButton(String(localized: "Prepare Audiobook"))
-                if preparedSize > 0 { storageLine }
-            }
-        }
-        .task(id: job?.phase) { preparedSize = AudiobookStore.size(bookFolder: storage.folder(for: bookID)) }
-    }
-
-    private var storageLine: some View {
-        HStack {
-            Text("Uses \(ByteCountFormatStyle().format(preparedSize))").font(.footnote).foregroundStyle(.secondary)
-            Spacer()
-            Button("Delete", role: .destructive) {
-                preparer.cancel(bookID: bookID)
-                AudiobookStore.remove(bookFolder: storage.folder(for: bookID))
-                preparedSize = 0
-            }
-            .font(.footnote)
-        }
-    }
-
-    private func startButton(_ title: String) -> some View {
-        Button {
-            preparer.prepare(bookID: bookID, title: self.title, author: author, voice: voice, storage: storage)
-        } label: {
-            Label(title, systemImage: "waveform")
-        }
-        .accessibilityIdentifier("prepare.start")
-    }
-
-    private static func detail(_ job: AudiobookPreparer.Job?) -> String {
-        guard let job else { return "" }
-        let percent = job.fraction.formatted(.percent.precision(.fractionLength(0)))
-        guard let remaining = job.remaining else { return percent }
-        let duration = Duration.seconds(remaining).formatted(.units(allowed: [.hours, .minutes], width: .abbreviated))
-        return String(localized: "\(percent) · about \(duration) left")
-    }
-}
-
-/// Every document in the book, whether it's read, and what was left out, with switches to change it.
+/// Every part of the book with text, named from its table of contents, whether it's read, and what was left out,
+/// with switches to change it.
 struct SpeechContentsView: View {
     let session: ListeningSession
 
-    @State private var chapters: [SpeechChapter] = []
-    @State private var overrides = SpeechOverrides()
+    @State private var sections: [SpeechSection] = []
     @State private var isLoading = true
 
     var body: some View {
@@ -375,58 +335,127 @@ struct SpeechContentsView: View {
             if isLoading {
                 HStack { Spacer(); ProgressView(); Spacer() }
             }
-            ForEach(chapters, id: \.spineIndex) { chapter in
-                VStack(alignment: .leading, spacing: 4) {
-                    Toggle(isOn: Binding(
-                        get: { isRead(chapter) },
-                        set: { included in
-                            Task {
-                                await session.provider.setIncluded(chapter.spineIndex, included)
-                                overrides = await session.provider.overrides
-                            }
-                        })) {
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(title(for: chapter)).lineLimit(2)
-                            Text(summary(for: chapter)).font(.caption).foregroundStyle(.secondary)
+            ForEach(sections) { section in
+                Toggle(isOn: Binding(
+                    get: { section.isRead },
+                    set: { included in
+                        Task {
+                            await session.provider.setIncluded(section.spineIndex, included)
+                            await load()
                         }
+                    })) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(section.title).lineLimit(2)
+                            .foregroundStyle(section.isRead ? .primary : .secondary)
+                        Text(section.summary).font(.caption).foregroundStyle(.secondary)
                     }
-                    .disabled(chapter.utterances.isEmpty)
                 }
+                .accessibilityIdentifier("contents.\(section.spineIndex)")
             }
         }
         .navigationTitle("What's Read Aloud")
         .navigationBarTitleDisplayMode(.inline)
-        .task {
-            let script = await session.provider.script()
-            overrides = await session.provider.overrides
-            chapters = script.chapters
-            isLoading = false
+        .task { await load() }
+    }
+
+    private func load() async {
+        let script = await session.provider.script()
+        let overrides = await session.provider.overrides
+        sections = SpeechSection.sections(script: script, publication: session.provider.publication, overrides: overrides)
+        isLoading = false
+    }
+}
+
+/// A row of "What's Read Aloud": one document of the book that has text.
+nonisolated struct SpeechSection: Identifiable, Equatable, Sendable {
+    let spineIndex: Int
+    let title: String
+    let isRead: Bool
+    let summary: String
+
+    var id: Int { spineIndex }
+
+    /// Sections in reading order, titled from the table of contents. Documents with no text (covers, image
+    /// pages) are left out, since there's nothing to choose.
+    static func sections(script: SpeechScript, publication: Publication, overrides: SpeechOverrides) -> [SpeechSection] {
+        var tocTitles: [String: [String]] = [:]
+        for (point, _) in publication.flattenedTableOfContents {
+            guard let path = point.path, !point.title.isEmpty else { continue }
+            tocTitles[path, default: []].append(point.title)
+        }
+        return script.chapters.compactMap { chapter in
+            guard !chapter.utterances.isEmpty, publication.spine.indices.contains(chapter.spineIndex) else { return nil }
+            let path = publication.spine[chapter.spineIndex].item.path
+            let titles = chapterTitles(tocTitles[path] ?? [])
+            let title: String
+            if let first = titles.first {
+                // A document holding several chapters, as many converted books have: name the span.
+                title = titles.count > 2 ? "\(first) – \(titles[titles.count - 1])" : titles.joined(separator: ", ")
+            } else if let heading = chapter.title, !heading.isEmpty {
+                title = heading
+            } else if let reason = chapter.skipReason {
+                title = reason.title
+            } else {
+                title = String(chapter.utterances[0].text.prefix(60))
+            }
+            let isRead: Bool
+            if overrides.excluded.contains(chapter.spineIndex) {
+                isRead = false
+            } else if overrides.included.contains(chapter.spineIndex) {
+                isRead = true
+            } else {
+                isRead = !chapter.isSkipped
+            }
+            var parts: [String] = []
+            if !isRead {
+                parts.append(chapter.skipReason.map { String(localized: "Skipped: \($0.title)") } ?? String(localized: "Skipped"))
+            } else {
+                let minutes = max(1, Int((Double(chapter.characterCount) / 15 / 60).rounded()))
+                parts.append(minutes >= 60
+                    ? Duration.seconds(minutes * 60).formatted(.units(allowed: [.hours, .minutes], width: .abbreviated))
+                    : String(localized: "\(minutes) min"))
+            }
+            if let omitted = omissionSummary(chapter.omissions) { parts.append(omitted) }
+            return SpeechSection(spineIndex: chapter.spineIndex, title: title, isRead: isRead, summary: parts.joined(separator: " · "))
         }
     }
 
-    private func isRead(_ chapter: SpeechChapter) -> Bool {
-        if overrides.excluded.contains(chapter.spineIndex) { return false }
-        if overrides.included.contains(chapter.spineIndex) { return true }
-        return !chapter.isSkipped && !chapter.utterances.isEmpty
+    private static let chapterPattern = try! NSRegularExpression(
+        pattern: #"^(?:chapter|part|book|volume|letter|act|section|stave|canto|preface|prologue|epilogue|introduction|appendix|afterword|foreword)\b|^[ivxlcdm]+\.?$|^\d+\.?$"#,
+        options: [.caseInsensitive])
+
+    /// Table of contents titles for one document, tidied: when some look like chapters ("CHAPTER XI.", "Preface"),
+    /// only those are kept, since converted books also list illustrations and captions there.
+    static func chapterTitles(_ titles: [String]) -> [String] {
+        let cleaned = titles.map(tidy).filter { !$0.isEmpty }
+        let chapters = cleaned.filter {
+            chapterPattern.firstMatch(in: $0, range: NSRange($0.startIndex..., in: $0)) != nil
+        }
+        return chapters.isEmpty ? cleaned : chapters
     }
 
-    private func title(for chapter: SpeechChapter) -> String {
-        chapter.title ?? chapter.utterances.first.map { String($0.text.prefix(60)) } ?? String(localized: "Section \(chapter.spineIndex + 1)")
+    /// "CHAPTER XI." becomes "Chapter XI": no shouting, no trailing period.
+    static func tidy(_ title: String) -> String {
+        var text = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        while let last = text.last, ".,;:".contains(last) { text.removeLast() }
+        let letters = text.filter(\.isLetter)
+        guard letters.count > 3, letters == letters.uppercased() else { return text }
+        return text.split(separator: " ", omittingEmptySubsequences: false).map { word -> String in
+            // Keep roman numerals as they are.
+            if word.allSatisfy({ "IVXLCDM".contains($0) }) { return String(word) }
+            return word.prefix(1).uppercased() + word.dropFirst().lowercased()
+        }.joined(separator: " ")
     }
 
-    private func summary(for chapter: SpeechChapter) -> String {
-        var parts: [String] = []
-        if let reason = chapter.skipReason, !overrides.included.contains(chapter.spineIndex) {
-            parts.append(String(localized: "Skipped: \(reason.title)"))
-        } else if !chapter.utterances.isEmpty {
-            let minutes = max(1, Int((Double(chapter.characterCount) / 15 / 60).rounded()))
-            parts.append(String(localized: "About \(minutes) min"))
-        }
-        let left = Dictionary(grouping: chapter.omissions, by: \.reason).map { ($0.key, $0.value.count) }
-            .sorted { $0.1 > $1.1 }
-        if !left.isEmpty {
-            parts.append(String(localized: "Leaves out ") + left.prefix(3).map { "\($0.1) × \($0.0.title.lowercased())" }.joined(separator: ", "))
-        }
-        return parts.joined(separator: " · ")
+    /// "Leaves out 12 page number, 3 note reference": the most common omissions.
+    static func omissionSummary(_ omissions: [SpeechOmission]) -> String? {
+        var counts: [SpeechSkipReason: Int] = [:]
+        for omission in omissions { counts[omission.reason, default: 0] += 1 }
+        let top: [(SpeechSkipReason, Int)] = counts.sorted { lhs, rhs in
+            lhs.value == rhs.value ? lhs.key.rawValue < rhs.key.rawValue : lhs.value > rhs.value
+        }.map { ($0.key, $0.value) }
+        guard !top.isEmpty else { return nil }
+        let items: [String] = top.prefix(3).map { reason, count in "\(count) \(reason.title.lowercased())" }
+        return String(localized: "Leaves out ") + items.joined(separator: ", ")
     }
 }

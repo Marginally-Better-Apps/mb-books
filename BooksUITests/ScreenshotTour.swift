@@ -172,19 +172,22 @@ final class ScreenshotTour: XCTestCase {
         _ = app.buttons["listen.options"].waitForExistence(timeout: 3)
         app.buttons["listen.options"].tap()
         save("05-options")
+        for _ in 0..<8 where !(app.buttons["listen.contents"].exists && app.buttons["listen.contents"].isHittable) { app.swipeUp() }
         app.buttons["listen.contents"].tap()
         sleep(2)
         save("06-whats-read")
         app.navigationBars.buttons.element(boundBy: 0).tap()
-        app.buttons["Studio"].tap()
-        save("07-studio")
+        for _ in 0..<8 where !app.buttons["voice.preview.af_heart"].isHittable { app.swipeDown() }
+        save("07-voices")
+        app.buttons["voice.preview.af_heart"].tap()
+        save("08-preview")
         app.swipeUp()
-        save("08-studio-more")
+        save("09-apple-voices")
         app.buttons["listen.done"].tap()
         app.swipeLeft()
         sleep(2)
         app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
-        save("09-return")
+        save("10-return")
     }
 
     /// Starts listening to real books (with covers, front matter, and notes) and checks the app keeps running.
@@ -216,6 +219,18 @@ final class ScreenshotTour: XCTestCase {
             }
         }
         XCTAssertTrue(app.buttons["listen.playPause"].exists || app.buttons["listen.pill"].exists)
+        // What's read aloud, named from the book's table of contents.
+        if !app.buttons["listen.options"].exists { app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap() }
+        if app.buttons["listen.options"].waitForExistence(timeout: 3) {
+            app.buttons["listen.options"].tap()
+            for _ in 0..<8 where !(app.buttons["listen.contents"].exists && app.buttons["listen.contents"].isHittable) { app.swipeUp() }
+            app.buttons["listen.contents"].tap()
+            sleep(4)
+            if let output { try? XCUIScreen.main.screenshot().pngRepresentation.write(to: output.appending(path: "i-contents.png")) }
+            app.navigationBars.buttons.element(boundBy: 0).tap()
+            app.buttons["listen.done"].tap()
+        }
+        XCTAssertEqual(app.state, .runningForeground)
         // Back home, the Continue shelf shows the book with progress as wide as its cover.
         if !app.buttons["reader.close"].exists { app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap() }
         app.buttons["reader.close"].tap()
@@ -224,11 +239,11 @@ final class ScreenshotTour: XCTestCase {
         if let output { try? XCUIScreen.main.screenshot().pngRepresentation.write(to: output.appending(path: "i-home.png")) }
     }
 
-    /// Listens with the Studio voice. Needs `MB_VOICE_MODEL_DIR`: a folder with `model.onnx` and `voices/af_heart.bin`.
-    func testStudioTour() throws {
+    /// Listens with a natural voice. Needs `MB_VOICE_MODEL_DIR`: a folder with `model_quantized.onnx` and `voices/*.bin`.
+    func testNaturalVoiceTour() throws {
         let environment = ProcessInfo.processInfo.environment
         guard let output = environment["MB_TOUR_OUTPUT"], let models = environment["MB_VOICE_MODEL_DIR"] else {
-            throw XCTSkip("Set MB_TOUR_OUTPUT and MB_VOICE_MODEL_DIR to run the Studio tour.")
+            throw XCTSkip("Set MB_TOUR_OUTPUT and MB_VOICE_MODEL_DIR to run the natural voice tour.")
         }
         let outputURL = URL(filePath: output)
         try FileManager.default.createDirectory(at: outputURL, withIntermediateDirectories: true)
@@ -251,9 +266,9 @@ final class ScreenshotTour: XCTestCase {
         app.buttons["reader.listen"].tap()
         XCTAssertTrue(app.buttons["listen.options"].waitForExistence(timeout: 10))
         app.buttons["listen.options"].tap()
-        app.buttons["Studio"].tap()
         sleep(1)
-        save("01-studio-options")
+        save("01-voices")
+        app.buttons["voice.select.am_michael"].tap()
         app.buttons["listen.done"].tap()
         for second in 0..<8 {
             sleep(2)

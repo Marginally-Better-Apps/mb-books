@@ -584,12 +584,15 @@
   // Read aloud. Native code addresses text by UTF-16 offset into the concatenated text nodes,
   // the same offsets `BookSearcher.bodyText` produces, so speech scripts built in Swift line up.
 
+  /// Cached with the text nodes: highlighting asks for this on every spoken word.
   function textStarts() {
     const nodes = textNodes();
+    if (state.textStarts && state.textStarts.nodes === nodes) return state.textStarts;
     const starts = [];
     let total = 0;
     for (const node of nodes) { starts.push(total); total += node.length; }
-    return { nodes, starts, total };
+    state.textStarts = { nodes, starts, total };
+    return state.textStarts;
   }
 
   function locateOffset(index, absolute) {
@@ -606,7 +609,7 @@
 
   function offsetOf(node, offset) {
     const { nodes, starts } = textStarts();
-    const index = nodes.indexOf(node);
+    const index = isText(node) ? nodes.indexOf(node) : -1;
     if (index >= 0) return starts[index] + (offset || 0);
     // An element boundary: the first text node at or after it.
     for (let i = 0; i < nodes.length; i += 1) {

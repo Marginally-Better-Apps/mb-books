@@ -10,7 +10,6 @@ struct SettingsView: View {
     @AppStorage(GoalDefaults.dailyMinutesKey) private var dailyGoal = GoalDefaults.dailyMinutes
     @AppStorage(GoalDefaults.yearlyBooksKey) private var yearlyGoal = GoalDefaults.yearlyBooks
     @Query private var books: [Book]
-    @State private var audiobookSize: Int64 = 0
     private var voiceStore: NeuralVoiceStore { .shared }
 
     var body: some View {
@@ -44,20 +43,13 @@ struct SettingsView: View {
                 Section {
                     VoiceModelRow()
                     if voiceStore.isReady {
-                        Button("Delete Studio Voice", role: .destructive) { voiceStore.delete() }
-                    }
-                    LabeledContent("Prepared Audiobooks", value: ByteCountFormatStyle().format(audiobookSize))
-                    if audiobookSize > 0 {
-                        Button("Delete Prepared Audiobooks", role: .destructive) {
-                            for book in books { AudiobookStore.remove(bookFolder: library.storage.folder(for: book.id)) }
-                            audiobookSize = 0
-                        }
+                        Button("Delete Natural Voices", role: .destructive) { voiceStore.delete() }
                     }
                     NavigationLink("Acknowledgements") { AcknowledgementsView() }
                 } header: {
                     Text("Listening")
                 } footer: {
-                    Text("Listening works offline. Studio voices need a one-time download and read English books.")
+                    Text("Listening works offline. Natural voices need a one-time download and read English books; Apple voices read every language.")
                 }
 
                 Section("Library") {
@@ -81,10 +73,6 @@ struct SettingsView: View {
                 } footer: {
                     Text("A personal library and reader for EPUB books, including fixed-layout, roll, audio, and video content.")
                 }
-            }
-            .task {
-                let folders = books.map { library.storage.folder(for: $0.id) }
-                audiobookSize = await Task.detached { folders.reduce(0) { $0 + AudiobookStore.size(bookFolder: $1) } }.value
             }
             .navigationTitle("Settings")
             .navigationBarTitleDisplayMode(.inline)

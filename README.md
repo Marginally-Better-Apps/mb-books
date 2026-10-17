@@ -17,8 +17,12 @@ The app icon is an Icon Composer document (`Books/Resources/AppIcon.icon`) with 
 
 Tap the headphones in the reader (or choose **Listen from Here** on a selection) to have the book read aloud from the page on screen. The sentence being read is highlighted, the page turns along with it, and turning pages by hand stops following until you tap **Return to Narration**. Listening continues with the screen locked and works with headphone and Lock Screen controls.
 
-- **Instant** uses the voices built into iOS (`AVSpeechSynthesizer`). It starts immediately on every supported device and highlights word by word. Enhanced and Premium voices from Settings › Accessibility › Spoken Content are used automatically when installed.
-- **Studio** uses [Kokoro-82M](https://huggingface.co/hexgrad/Kokoro-82M), a neural voice that runs on the CPU with ONNX Runtime, so it works on every iPhone and iPad that runs iOS 26. The model (about 325 MB) downloads once. **Prepare Audiobook** (in the Listen options or a book's details) renders the whole book ahead of time and keeps going in the background; anything not prepared is rendered as you listen. Studio voices read English only.
+One voice list holds two kinds of voices, each with a sample button:
+
+- **Natural voices** are [Kokoro-82M](https://huggingface.co/hexgrad/Kokoro-82M) (8-bit), rendered on the CPU with ONNX Runtime a few sentences ahead of the listener. The 97 MB download (model and eight voices) happens once; samples are bundled, so voices can be heard first. In testing it runs about 6× faster than real time on two cores of an M2 and should stay ahead of the listener on every iPhone that runs iOS 26. They read English books.
+- **Apple voices** (`AVSpeechSynthesizer`) need no download, read every language, and highlight word by word. Enhanced and Premium voices from Settings › Accessibility › Spoken Content appear when installed.
+
+Choosing a voice never starts playback: a playing book switches voices at the current sentence, and a paused one stays paused.
 
 Nothing you read leaves the device. Every component is permissively licensed (Apache 2.0 or MIT, see [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)); espeak-ng, which is GPL, is deliberately not used.
 
@@ -66,18 +70,18 @@ Media overlays (publisher narration) are parsed from the manifest but not played
 - `Books/Reader`: `ReaderModel` (state and annotations), `ReaderViewController` (loading, the JS bridge, and chapter preloading across a few `ChapterView` web views), page-turn presenters in `PageTurn.swift` and `CurlPagePresenter.swift`, and SwiftUI chrome and sheets. `Web/reader.js` paginates and handles locations, highlights, search, and taps in an isolated content world. Fixed layouts load generated wrapper pages that scale each page in an iframe.
 - `Books/Models`: SwiftData models (`Book`, `BookCollection`, `Annotation`, `ReadingDay`) and `Locator`.
 
-- `Books/Speech`: read aloud. `SpeechExtractor` and `ScanReader` turn documents into utterances with text offsets that `reader.js` highlights; `ListeningSession` drives a system-voice or Studio backend and follows along in the reader; `AudiobookPreparer` renders Studio audiobooks. `Neural/` holds the Kokoro runner, the Swift port of misaki's English G2P, and the model download store.
+- `Books/Speech`: read aloud. `SpeechExtractor` and `ScanReader` turn documents into utterances with text offsets that `reader.js` highlights; `ListeningSession` drives an Apple-voice or natural-voice backend and follows along in the reader. `Neural/` holds the Kokoro runner, the Swift port of misaki's English G2P, and the model download store.
 
-Requires Xcode 26 and iOS 26 or newer. The only third-party dependency is ONNX Runtime (Swift package), for Studio voices. `project.yml` is the source of truth for project settings. Run `xcodegen generate` after changing it. Open `MBBooks.xcodeproj` and run the shared `MBBooks` scheme. For direct device runs in Xcode, select your development team and enable signing in your local build settings.
+Requires Xcode 26 and iOS 26 or newer. The only third-party dependency is ONNX Runtime (Swift package), for natural voices. `project.yml` is the source of truth for project settings. Run `xcodegen generate` after changing it. Open `MBBooks.xcodeproj` and run the shared `MBBooks` scheme. For direct device runs in Xcode, select your development team and enable signing in your local build settings.
 
 ## Testing
 
 `ios-test.sh` runs the XCTest suites on the newest available iPhone simulator. Set `MB_TEST_DESTINATION` to choose another one.
 
 - `BooksTests`: unit tests for ZIP, parsing, EPUB 2/3/3.4 layouts, fallbacks, DRM detection, font deobfuscation, import, deduplication, search offsets, spreads, progress, reading streaks, and preferences.
-- `BooksTests/SpeechTests`: content extraction (page numbers, notes, front matter, hidden text, running heads), text offsets matching the reader, OCR layout, pronunciation checked against misaki, and audiobook storage. `KokoroIntegrationTests` renders real speech when `TEST_RUNNER_MB_KOKORO_DIR` points at a folder with `model.onnx` and `af_heart.bin`.
+- `BooksTests/SpeechTests`: content extraction (page numbers, notes, front matter, hidden text, running heads), text offsets matching the reader, OCR layout, pronunciation checked against misaki, and audiobook storage. `KokoroIntegrationTests` renders real speech when `TEST_RUNNER_MB_KOKORO_DIR` points at a folder with `model_quantized.onnx` and `af_heart.bin`.
 - `BooksUITests/LibraryFlowTests`: opens a generated EPUB 3.4 book, pages across chapters, follows nested TOC links, switches themes, bookmarks, reopens at the saved position, and checks Settings.
-- `BooksUITests/ScreenshotTour`: a development aid, skipped by default. Run it with `TEST_RUNNER_MB_TOUR_OUTPUT=/tmp/shots` (and optionally `TEST_RUNNER_MB_TOUR_DIR=<folder of .epub files>`) to screenshot every book and the reader sheets. `testStudioTour` also needs `TEST_RUNNER_MB_VOICE_MODEL_DIR` (a folder with `model.onnx` and `voices/af_heart.bin`) and points the app at that model in Debug builds.
+- `BooksUITests/ScreenshotTour`: a development aid, skipped by default. Run it with `TEST_RUNNER_MB_TOUR_OUTPUT=/tmp/shots` (and optionally `TEST_RUNNER_MB_TOUR_DIR=<folder of .epub files>`) to screenshot every book and the reader sheets. `testNaturalVoiceTour` also needs `TEST_RUNNER_MB_VOICE_MODEL_DIR` (a folder with `model_quantized.onnx` and `voices/*.bin`) and points the app at that model in Debug builds. `testListenToImportedBooks` listens to the books in `TEST_RUNNER_MB_LISTEN_DIR`, and `SpeechReportTests` writes what would be read from them to `TEST_RUNNER_MB_SPEECH_REPORT`.
 
 For manual testing, launch the app with `-import-directory <folder>` to import every EPUB in a folder at startup. UI tests use `-ui-testing -seed-sample-book` for an isolated, in-memory library.
 

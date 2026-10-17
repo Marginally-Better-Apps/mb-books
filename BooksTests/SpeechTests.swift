@@ -414,43 +414,68 @@ final class PronunciationTests: XCTestCase {
 
 @MainActor
 final class ListeningStorageTests: XCTestCase {
-    func testAudiobookStoreRoundTripsAAC() throws {
-        let folder = try Fixtures.temporaryDirectory()
-        let store = AudiobookStore(bookFolder: folder, voice: NeuralVoiceCatalog.defaultVoice)
-        let utterance = SpeechUtterance(spineIndex: 0, text: "Hello there.", start: 0, end: 12)
-        XCTAssertFalse(store.contains(utterance))
-        let samples = (0..<24_000).map { Float(sin(Double($0) * 2 * .pi * 220 / 24_000) * 0.3) }
-        try store.write(samples, for: utterance)
-        XCTAssertTrue(store.contains(utterance))
-        let read = try store.readSamples(utterance)
-        XCTAssertEqual(Double(read.count), Double(samples.count), accuracy: 4096, "AAC adds a little padding at most")
-        XCTAssertGreaterThan(read.map(abs).max() ?? 0, 0.1)
-        XCTAssertGreaterThan(AudiobookStore.size(bookFolder: folder), 0)
+    func testEveryNaturalVoiceHasABundledPreviewAndPinnedChecksum() {
+        XCTAssertEqual(Set(NeuralVoiceCatalog.voices.map(\.id)).count, NeuralVoiceCatalog.voices.count)
+        for voice in NeuralVoiceCatalog.voices {
+            XCTAssertNotNil(Bundle(for: EnglishG2P.self).url(forResource: "preview-\(voice.id)", withExtension: "m4a"), voice.id)
+            XCTAssertEqual(voice.sha256.count, 64)
+        }
+        XCTAssertEqual(NeuralVoiceCatalog.model.name, "model_quantized.onnx")
+        XCTAssertLessThan(NeuralVoiceCatalog.downloadSize, 100_000_000, "The voices download stays under 100 MB")
+    }
 
-        var other = utterance
-        other.text = "Something else."
-        XCTAssertNotEqual(store.url(for: utterance), store.url(for: other))
-        XCTAssertFalse(try FileManager.default.contentsOfDirectory(atPath: store.directory.path).contains { $0.hasPrefix(".") },
-                       "No temporary files are left behind")
-        AudiobookStore.remove(bookFolder: folder)
-        XCTAssertFalse(store.contains(utterance))
+    func testContentsAreNamedFromTheTableOfContents() {
+        func chapter(_ index: Int, title: String? = nil, skip: SpeechSkipReason? = nil, empty: Bool = false) -> SpeechChapter {
+            SpeechChapter(spineIndex: index, title: title,
+                          utterances: empty ? [] : [SpeechUtterance(spineIndex: index, text: String(repeating: "Words here. ", count: 100))],
+                          skipReason: skip)
+        }
+        func item(_ path: String) -> SpineItem {
+            SpineItem(item: ManifestItem(id: path, path: path, mediaType: "application/xhtml+xml", properties: [], fallback: nil,
+                                         mediaOverlay: nil, remoteURL: nil), linear: true, properties: [], layout: .reflowable)
+        }
+        let toc = ["Chapter I", "Chapter II", "Chapter III"].enumerated().map {
+            NavigationPoint(id: "\($0.offset)", title: $0.element, path: "book.xhtml", fragment: "c\($0.offset)", children: [])
+        } + [NavigationPoint(id: "x", title: "Afterword", path: "after.xhtml", fragment: nil, children: [])]
+        let publication = Publication(
+            version: "3.0", packagePath: "content.opf", metadata: PublicationMetadata(title: "Book"), manifest: [],
+            spine: ["cover.xhtml", "copyright.xhtml", "book.xhtml", "after.xhtml", "extra.xhtml"].map(item),
+            tableOfContents: toc, pageList: [], landmarks: [], layout: .reflowable, readingProgression: .ltr,
+            coverPath: nil, navigationDocumentPath: nil, obfuscatedResources: [:])
+        let script = SpeechScript(chapters: [
+            chapter(0, empty: true), chapter(1, skip: .copyright), chapter(2), chapter(3), chapter(4, title: "A Note"),
+        ])
+        let sections = SpeechSection.sections(script: script, publication: publication, overrides: SpeechOverrides(included: [1]))
+        XCTAssertEqual(sections.map(\.spineIndex), [1, 2, 3, 4], "Documents with nothing to read aren't listed")
+        XCTAssertEqual(sections.map(\.title), ["Copyright page", "Chapter I – Chapter III", "Afterword", "A Note"])
+        XCTAssertTrue(sections[0].isRead, "Overrides show as read")
+        XCTAssertTrue(sections[1].summary.hasSuffix("min"), sections[1].summary)
+    }
+
+    func testContentsPreferChapterEntriesOverCaptions() {
+        let titles = ["PRIDE. and PREJUDICE", "Piling up the fire.", "CHAPTER I.", "“Mrs. Long and her nieces.”", "CHAPTER II.", "CHAPTER XI."]
+        XCTAssertEqual(SpeechSection.chapterTitles(titles), ["Chapter I", "Chapter II", "Chapter XI"])
+        XCTAssertEqual(SpeechSection.chapterTitles(["Departure", "Open Water"]), ["Departure", "Open Water"])
+        XCTAssertEqual(SpeechSection.tidy("THE RED-HEADED LEAGUE."), "The Red-headed League")
     }
 
     func testPreferencesPersist() throws {
         let defaults = try XCTUnwrap(UserDefaults(suiteName: "SpeechTests-\(UUID().uuidString)"))
+        XCTAssertEqual(ListeningPreferences.load(from: defaults).naturalVoice?.name, "Heart", "Heart is the default voice")
         var preferences = ListeningPreferences()
-        preferences.mode = .studio
         preferences.speed = 1.5
-        preferences.neuralVoiceID = "am_michael"
+        preferences.voice = .natural("am_michael")
         preferences.setSystemVoice("com.apple.voice.premium.en-US.Zoe", for: "en-GB")
         preferences.save(to: defaults)
-        let loaded = ListeningPreferences.load(from: defaults)
+        var loaded = ListeningPreferences.load(from: defaults)
         XCTAssertEqual(loaded, preferences)
         XCTAssertEqual(loaded.systemVoice(for: "en"), "com.apple.voice.premium.en-US.Zoe")
-        XCTAssertEqual(loaded.neuralVoice.name, "Michael")
+        XCTAssertEqual(loaded.naturalVoice?.name, "Michael")
+        loaded.voice = .system
+        XCTAssertNil(loaded.naturalVoice)
     }
 
-    func testStudioSupportsEnglishOnly() {
+    func testNaturalVoicesReadEnglishOnly() {
         XCTAssertTrue(NeuralVoiceCatalog.supports(language: "en-GB"))
         XCTAssertTrue(NeuralVoiceCatalog.supports(language: nil))
         XCTAssertFalse(NeuralVoiceCatalog.supports(language: "fr"))
@@ -468,14 +493,14 @@ final class ListeningStorageTests: XCTestCase {
 }
 
 /// Renders speech with the real Kokoro model. Skipped unless `TEST_RUNNER_MB_KOKORO_DIR` points at a folder
-/// with `model.onnx` and `af_heart.bin` (the model is 300 MB, so it isn't downloaded in CI).
+/// with `model_quantized.onnx` and `af_heart.bin` (the model isn't downloaded in CI).
 final class KokoroIntegrationTests: XCTestCase {
     func testSynthesizesIntelligibleSpeech() throws {
         guard let directory = ProcessInfo.processInfo.environment["MB_KOKORO_DIR"].map({ URL(filePath: $0) }) else {
             throw XCTSkip("Set TEST_RUNNER_MB_KOKORO_DIR to run")
         }
         let g2p = try EnglishG2P.bundled()
-        let synthesizer = try KokoroSynthesizer(modelURL: directory.appending(path: "model.onnx"), g2p: g2p)
+        let synthesizer = try KokoroSynthesizer(modelURL: directory.appending(path: NeuralVoiceCatalog.model.name), g2p: g2p)
         try synthesizer.loadVoice(id: "af_heart", from: directory.appending(path: "af_heart.bin"))
         let text = "It was the best of times, it was the worst of times. Hermione paid $45.50 for the 21st edition in 1984."
         let started = Date.now
@@ -488,9 +513,9 @@ final class KokoroIntegrationTests: XCTestCase {
         XCTAssertGreaterThan(samples.map(abs).max() ?? 0, 0.05, "Not silent")
         // Save for listening or transcription.
         if let output = ProcessInfo.processInfo.environment["MB_KOKORO_OUTPUT"] {
-            let format = try XCTUnwrap(AudiobookStore.format)
+            let format = try XCTUnwrap(NeuralSpeechBackend.format)
             let file = try AVAudioFile(forWriting: URL(filePath: output), settings: format.settings)
-            try file.write(from: XCTUnwrap(AudiobookStore.buffer(samples, format: format)))
+            try file.write(from: XCTUnwrap(NeuralSpeechBackend.buffer(samples, format: format)))
         }
     }
 }

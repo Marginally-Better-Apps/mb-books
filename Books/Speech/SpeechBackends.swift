@@ -189,13 +189,15 @@ enum SystemVoices {
     }
 }
 
-// MARK: - Studio voices
+// MARK: - Natural voices
 
-/// Studio listening: Kokoro audio, from the prepared audiobook when it's there and rendered on the spot when it
-/// isn't. Plays through `AVAudioEngine`, so speed changes keep the voice's pitch.
+/// Natural voices: Kokoro renders a few sentences ahead of the listener while they play through
+/// `AVAudioEngine`, so speed changes keep the voice's pitch.
 @MainActor
 final class NeuralSpeechBackend: SpeechBackend {
-    nonisolated private static let logger = Logger(subsystem: "com.mbbooks.MBBooks", category: "Studio")
+    nonisolated private static let logger = Logger(subsystem: "com.mbbooks.MBBooks", category: "NaturalVoice")
+    nonisolated static let format = AVAudioFormat(
+        commonFormat: .pcmFormatFloat32, sampleRate: NeuralVoiceCatalog.sampleRate, channels: 1, interleaved: false)
 
     weak var delegate: SpeechBackendDelegate?
     var rate: Double = 1 {
@@ -203,7 +205,8 @@ final class NeuralSpeechBackend: SpeechBackend {
     }
 
     let voice: NeuralVoiceCatalog.Voice
-    let store: AudiobookStore
+    private let modelURL: URL
+    private let voiceURL: URL
     private let engine = AVAudioEngine()
     private let player = AVAudioPlayerNode()
     private let timePitch = AVAudioUnitTimePitch()
@@ -215,18 +218,20 @@ final class NeuralSpeechBackend: SpeechBackend {
     private var isPaused = false
     private var isWaiting = false
     private var durations: [Int: TimeInterval] = [:]
-    /// Audio rendered or scheduled ahead of the voice, in utterances.
+    /// Sentences rendered ahead of the one playing.
     private let lookahead = 3
 
-    init(voice: NeuralVoiceCatalog.Voice, store: AudiobookStore) {
+    init(voice: NeuralVoiceCatalog.Voice, modelURL: URL, voiceURL: URL) {
         self.voice = voice
-        self.store = store
+        self.modelURL = modelURL
+        self.voiceURL = voiceURL
         engine.attach(player)
         engine.attach(timePitch)
-        if let format = AudiobookStore.format {
+        if let format = Self.format {
             engine.connect(player, to: timePitch, format: format)
             engine.connect(timePitch, to: engine.mainMixerNode, format: format)
         }
+        NeuralSpeechService.shared.prewarm(modelURL: modelURL)
     }
 
     func play(_ utterances: [SpeechUtterance], from index: Int) {
@@ -265,22 +270,24 @@ final class NeuralSpeechBackend: SpeechBackend {
         generation += 1
         rendering.values.forEach { $0.cancel() }
         rendering = [:]
+        // Sentences queued for the sentence that was playing are no longer needed.
+        NeuralSpeechService.shared.cancelQueued()
         player.stop()
         scheduledAhead = 0
         durations = [:]
         setWaiting(false)
     }
 
-    /// Keeps a few utterances rendered and scheduled ahead of the one playing.
+    /// Keeps a few sentences rendered and scheduled ahead of the one playing.
     private func fill() {
         let generation = generation
-        // Start rendering the next few in order; listening has priority over preparing.
         for index in nextToSchedule..<min(utterances.count, nextToSchedule + lookahead) where rendering[index] == nil {
-            let utterance = utterances[index]
-            let store = store
+            let text = utterances[index].text
             let voice = voice
+            let modelURL = modelURL
+            let voiceURL = voiceURL
             rendering[index] = Task.detached(priority: .userInitiated) {
-                await Self.samples(for: utterance, voice: voice, store: store)
+                await Self.samples(for: text, voice: voice, modelURL: modelURL, voiceURL: voiceURL)
             }
         }
         guard scheduledAhead < 2, nextToSchedule < utterances.count, let task = rendering[nextToSchedule] else {
@@ -294,9 +301,7 @@ final class NeuralSpeechBackend: SpeechBackend {
             guard generation == self.generation, index == nextToSchedule else { return }
             rendering[index] = nil
             nextToSchedule += 1
-            guard let samples, !samples.isEmpty, let format = AudiobookStore.format,
-                  let buffer = AudiobookStore.buffer(samples, format: format)
-            else {
+            guard let samples, !samples.isEmpty, let format = Self.format, let buffer = Self.buffer(samples, format: format) else {
                 // A sentence that can't be rendered is skipped rather than stopping the book.
                 fill()
                 return
@@ -307,8 +312,7 @@ final class NeuralSpeechBackend: SpeechBackend {
     }
 
     private func schedule(_ buffer: AVAudioPCMBuffer, index: Int, generation: Int) {
-        let pause = utterances[index].pauseAfter
-        let padded = Self.appendingSilence(buffer, seconds: pause)
+        let padded = Self.appendingSilence(buffer, seconds: utterances[index].pauseAfter)
         durations[index] = Double(buffer.frameLength) / NeuralVoiceCatalog.sampleRate
         let startsNow = scheduledAhead == 0
         scheduledAhead += 1
@@ -321,7 +325,7 @@ final class NeuralSpeechBackend: SpeechBackend {
             Task { @MainActor in
                 guard let self, generation == self.generation else { return }
                 self.scheduledAhead -= 1
-                // The next scheduled utterance starts as this one ends.
+                // The next scheduled sentence starts as this one ends.
                 if self.scheduledAhead > 0, index + 1 < self.utterances.count {
                     self.delegate?.backend(didStart: index + 1, duration: self.durations[index + 1].map { $0 / self.rate })
                 }
@@ -338,24 +342,29 @@ final class NeuralSpeechBackend: SpeechBackend {
         delegate?.backend(isWaiting: waiting)
     }
 
-    /// The utterance's audio from the prepared audiobook, or rendered now and saved for next time.
     @concurrent
-    nonisolated private static func samples(for utterance: SpeechUtterance, voice: NeuralVoiceCatalog.Voice,
-                                            store: AudiobookStore) async -> [Float]? {
-        if store.contains(utterance), let samples = try? store.readSamples(utterance) { return samples }
+    nonisolated private static func samples(for text: String, voice: NeuralVoiceCatalog.Voice, modelURL: URL,
+                                            voiceURL: URL) async -> [Float]? {
         guard !Task.isCancelled else { return nil }
         do {
-            let models = await MainActor.run { (NeuralVoiceStore.shared.modelURL, NeuralVoiceStore.shared) }
-            let voiceURL = try await models.1.ensureVoice(voice)
-            let samples = try await NeuralSpeechService.shared.synthesize(
-                utterance.text, voice: voice, modelURL: models.0, voiceURL: voiceURL, priority: .listening)
-            guard !samples.isEmpty else { return nil }
-            try? store.write(samples, for: utterance)
-            return samples
+            return try await NeuralSpeechService.shared.synthesize(text, voice: voice, modelURL: modelURL, voiceURL: voiceURL)
+        } catch is CancellationError {
+            return nil
         } catch {
-            logger.error("Couldn't render an utterance: \(error.localizedDescription, privacy: .public)")
+            logger.error("Couldn't render a sentence: \(error.localizedDescription, privacy: .public)")
             return nil
         }
+    }
+
+    nonisolated static func buffer(_ samples: [Float], format: AVAudioFormat) -> AVAudioPCMBuffer? {
+        guard let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: AVAudioFrameCount(max(1, samples.count))) else {
+            return nil
+        }
+        buffer.frameLength = AVAudioFrameCount(samples.count)
+        if let channel = buffer.floatChannelData?[0] {
+            samples.withUnsafeBufferPointer { channel.update(from: $0.baseAddress!, count: samples.count) }
+        }
+        return buffer
     }
 
     private static func appendingSilence(_ buffer: AVAudioPCMBuffer, seconds: Double) -> AVAudioPCMBuffer {

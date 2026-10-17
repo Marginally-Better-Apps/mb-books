@@ -51,15 +51,20 @@ final class ListeningSession {
     let language: String?
 
     private(set) var state: State = .idle
-    private(set) var mode: ListeningMode = .instant
-    /// Waiting for Studio audio to be rendered.
+    /// The voice reading now (or next, when paused).
+    private(set) var activeVoice: ResolvedVoice?
+    /// Waiting for a natural voice to render the next sentence.
     private(set) var isWaiting = false
     /// Whether the page follows the voice. Turning pages by hand stops following until asked to return.
     private(set) var isFollowing = true
     private(set) var chapter: SpeechChapter?
     private(set) var index = 0
-    /// Explains why Studio wasn't used, when it was asked for.
-    private(set) var notice: String?
+
+    /// A voice ready to read: a downloaded natural voice, or a system voice.
+    enum ResolvedVoice: Equatable {
+        case natural(NeuralVoiceCatalog.Voice)
+        case system(identifier: String?)
+    }
 
     var preferences: ListeningPreferences {
         didSet {
@@ -73,6 +78,8 @@ final class ListeningSession {
     var coverImage: UIImage?
 
     private var backend: SpeechBackend?
+    /// Set when the voice or position changed while paused; the next resume starts from `index` afresh.
+    private var needsRestart = false
     private var pageTurnTask: Task<Void, Never>?
     private var pendingBreak: (offset: Int, page: Int)?
     private var observers: [NSObjectProtocol] = []
@@ -95,12 +102,14 @@ final class ListeningSession {
         return chapter.utterances[index]
     }
 
-    var supportsStudio: Bool { NeuralVoiceCatalog.supports(language: language) }
+    var supportsNaturalVoices: Bool { NeuralVoiceCatalog.supports(language: language) }
 
-    /// The mode that will actually be used: Studio needs the model and an English book.
-    var effectiveMode: ListeningMode {
-        guard preferences.mode == .studio else { return .instant }
-        return supportsStudio && NeuralVoiceStore.shared.isReady ? .studio : .instant
+    /// The voice that will read: the chosen natural voice if it can, otherwise the system voice for the language.
+    var resolvedVoice: ResolvedVoice {
+        if let natural = preferences.naturalVoice, supportsNaturalVoices, NeuralVoiceStore.shared.isReady {
+            return .natural(natural)
+        }
+        return .system(identifier: preferences.systemVoice(for: language))
     }
 
     var chapterTitle: String? {
@@ -155,9 +164,19 @@ final class ListeningSession {
         try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
     }
 
-    private func play(_ chapter: SpeechChapter, from index: Int) {
+    /// Reads `chapter` from `index`, or, with `startPlaying` false, just moves there for the next resume.
+    private func play(_ chapter: SpeechChapter, from index: Int, startPlaying: Bool = true) {
         self.chapter = chapter
         self.index = max(0, min(index, chapter.utterances.count - 1))
+        guard startPlaying else {
+            backend?.stop()
+            needsRestart = true
+            state = .paused
+            if let utterance = currentUtterance { follow(utterance, duration: nil) }
+            updateNowPlaying()
+            return
+        }
+        needsRestart = false
         let backend = makeBackendIfNeeded()
         state = .playing
         startedAt = .now
@@ -166,64 +185,53 @@ final class ListeningSession {
     }
 
     private func makeBackendIfNeeded() -> SpeechBackend {
-        let mode = effectiveMode
-        notice = preferences.mode == .studio && mode == .instant
-            ? (supportsStudio ? String(localized: "Download the Studio voice to use it.")
-                : String(localized: "Studio voices read English only, so this book uses Instant."))
-            : nil
-        if let backend, mode == self.mode {
-            if let system = backend as? SystemSpeechBackend {
-                system.voiceIdentifier = preferences.systemVoice(for: language)
-            }
-            if let neural = backend as? NeuralSpeechBackend, neural.voice.id != preferences.neuralVoiceID {
-                return replaceBackend(mode: mode)
-            }
-            return backend
-        }
-        return replaceBackend(mode: mode)
-    }
-
-    private func replaceBackend(mode: ListeningMode) -> SpeechBackend {
+        let voice = resolvedVoice
+        if let backend, voice == activeVoice { return backend }
         if backend != nil { reader?.clearSpeech() }
         backend?.stop()
         let backend: SpeechBackend
-        switch mode {
-        case .instant:
+        switch voice {
+        case .system(let identifier):
             let system = SystemSpeechBackend()
             system.bookLanguage = language
-            system.voiceIdentifier = preferences.systemVoice(for: language)
+            system.voiceIdentifier = identifier
             backend = system
-        case .studio:
-            let voice = preferences.neuralVoice
-            backend = NeuralSpeechBackend(voice: voice, store: AudiobookStore(bookFolder: bookFolder, voice: voice))
+        case .natural(let natural):
+            let store = NeuralVoiceStore.shared
+            backend = NeuralSpeechBackend(voice: natural, modelURL: store.modelURL, voiceURL: store.voiceURL(natural))
         }
         backend.rate = preferences.speed
         backend.delegate = self
         self.backend = backend
-        self.mode = mode
+        activeVoice = voice
         isWaiting = false
         return backend
     }
 
     private func applyPreferenceChange(from old: ListeningPreferences) {
         backend?.rate = preferences.speed
-        guard isActive, let chapter else { return }
-        let modeChanged = old.mode != preferences.mode
-        let voiceChanged = old.neuralVoiceID != preferences.neuralVoiceID || old.systemVoices != preferences.systemVoices
-        if modeChanged || voiceChanged {
-            let wasPlaying = state == .playing
-            play(chapter, from: index)
-            if !wasPlaying { pause() }
-        }
+        if old.voice != preferences.voice || old.systemVoices != preferences.systemVoices { voiceDidChange() }
+        guard isActive else { return }
         if !old.followsAlong, preferences.followsAlong { returnToNarration() }
         if old.followsAlong, !preferences.followsAlong { reader?.clearSpeech() }
         updateNowPlaying()
     }
 
-    /// Called when the reader turns on Studio after downloading it, to switch voices in place.
-    func refreshMode() {
-        guard isActive, let chapter, effectiveMode != mode else { return }
-        play(chapter, from: index)
+    /// Switches to the chosen voice at the current sentence. Never starts playback: a paused book stays paused
+    /// and picks up with the new voice when resumed.
+    func voiceDidChange() {
+        guard isActive, let chapter, resolvedVoice != activeVoice else { return }
+        if state == .playing {
+            play(chapter, from: index)
+        } else {
+            backend?.stop()
+            needsRestart = true
+        }
+    }
+
+    /// Prepares the model before the first sentence is needed, if a natural voice will read.
+    func prewarm() {
+        if case .natural = resolvedVoice { NeuralSpeechService.shared.prewarm(modelURL: NeuralVoiceStore.shared.modelURL) }
     }
 
     // MARK: - Controls
@@ -248,41 +256,48 @@ final class ListeningSession {
     func resume() {
         guard state == .paused else { return }
         activateAudioSession()
+        if needsRestart || backend == nil || resolvedVoice != activeVoice, let chapter {
+            play(chapter, from: index)
+            return
+        }
         backend?.resume()
         state = .playing
         updateNowPlaying()
     }
 
     /// Moves by whole sentences, crossing into neighboring chapters.
+    /// Moves by whole sentences, crossing into neighboring chapters. Keeps playing or stays paused.
     func skip(by count: Int) {
         guard let chapter else { return }
+        let playing = state == .playing
         let target = index + count
         if chapter.utterances.indices.contains(target) {
-            play(chapter, from: target)
+            play(chapter, from: target, startPlaying: playing)
             return
         }
         Task {
             if target < 0, let previous = await provider.readableChapter(from: chapter.spineIndex - 1, forward: false) {
-                play(previous, from: previous.utterances.count - 1)
+                play(previous, from: previous.utterances.count - 1, startPlaying: playing)
             } else if target >= chapter.utterances.count,
                       let next = await provider.readableChapter(from: chapter.spineIndex + 1) {
-                play(next, from: 0)
+                play(next, from: 0, startPlaying: playing)
             } else {
-                play(chapter, from: max(0, min(target, chapter.utterances.count - 1)))
+                play(chapter, from: max(0, min(target, chapter.utterances.count - 1)), startPlaying: playing)
             }
         }
     }
 
     func skipChapter(forward: Bool) {
         guard let chapter else { return }
+        let playing = state == .playing
         Task {
             if !forward, index > 2 {
-                play(chapter, from: 0)
+                play(chapter, from: 0, startPlaying: playing)
                 return
             }
             let from = chapter.spineIndex + (forward ? 1 : -1)
             if let target = await provider.readableChapter(from: from, forward: forward) {
-                play(target, from: 0)
+                play(target, from: 0, startPlaying: playing)
             }
         }
     }

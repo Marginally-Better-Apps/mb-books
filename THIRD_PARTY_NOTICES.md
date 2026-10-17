@@ -5,14 +5,14 @@ are downloaded once, from pinned URLs, and verified by SHA-256 before use.
 
 | Component | Use | License | Where it comes from |
 | --- | --- | --- | --- |
-| [Kokoro-82M](https://huggingface.co/hexgrad/Kokoro-82M) by hexgrad | Studio voice model and voices | Apache License 2.0 | Downloaded on request |
+| [Kokoro-82M](https://huggingface.co/hexgrad/Kokoro-82M) by hexgrad | Natural voice model (8-bit) and voices | Apache License 2.0 | Downloaded on request |
 | [Kokoro-82M-v1.0-ONNX](https://huggingface.co/onnx-community/Kokoro-82M-v1.0-ONNX) by onnx-community | ONNX export of Kokoro | Apache License 2.0 | Downloaded on request |
 | [misaki](https://github.com/hexgrad/misaki) by hexgrad | US English pronunciation dictionaries (`us_gold.json`, `us_silver.json`) and the G2P rules ported to Swift | Apache License 2.0 | Bundled (`Books/Resources/Speech`) |
 | [graphemes_to_phonemes_en_us](https://huggingface.co/PeterReid/graphemes_to_phonemes_en_us) by Peter Reid | Pronunciation of words not in the dictionary | Apache License 2.0 | Bundled (`g2p-en-us.safetensors`) |
 | [ONNX Runtime](https://github.com/microsoft/onnxruntime) by Microsoft | Runs the Kokoro model | MIT License | Swift package |
 
 No GPL components are used. In particular, espeak-ng (GPL-3.0), which Kokoro and misaki use for other languages
-and as a last-resort fallback, is not included; Studio voices are therefore English only.
+and as a last-resort fallback, is not included; natural voices are therefore English only.
 
 ## Apache License 2.0
 

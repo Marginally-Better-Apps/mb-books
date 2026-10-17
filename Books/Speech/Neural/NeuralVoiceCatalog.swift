@@ -4,6 +4,8 @@ import Foundation
 ///
 /// Kokoro-82M (hexgrad, Apache 2.0) as exported to ONNX by onnx-community (Apache 2.0). Only English
 /// voices are offered: Kokoro's other languages depend on espeak-ng for pronunciation, which is GPL-licensed.
+/// Kyutai's Pocket TTS (January 2026) was also measured; it scored the same for naturalness, so the
+/// already-integrated, deterministic Kokoro stays.
 nonisolated enum NeuralVoiceCatalog {
     struct File: Sendable, Hashable {
         let name: String
@@ -22,40 +24,55 @@ nonisolated enum NeuralVoiceCatalog {
             File(name: "\(id).bin", url: NeuralVoiceCatalog.repository.appending(path: "voices/\(id).bin"),
                  size: 522_240, sha256: sha256)
         }
+
+        var description: String {
+            isFemale ? String(localized: "American English · Female") : String(localized: "American English · Male")
+        }
+
+        /// A short sample bundled with the app, so voices can be heard before the model is downloaded.
+        var previewURL: URL? {
+            Bundle.main.url(forResource: "preview-\(id)", withExtension: "m4a")
+        }
     }
 
-    static let modelID = "kokoro-82m-v1.0"
+    static let modelID = "kokoro-82m-v1.0-q8"
+    /// Folders of earlier, larger model downloads, removed to give the space back.
+    static let retiredModelIDs = ["kokoro-82m-v1.0"]
     private static let revision = "1939ad2a8e416c0acfeecc08a694d14ef25f2231"
     static let repository = URL(string: "https://huggingface.co/onnx-community/Kokoro-82M-v1.0-ONNX/resolve/\(revision)")!
 
-    /// The full-precision model: the slow, high-quality path is the reason this exists.
+    /// The 8-bit model: about twice as fast as full precision on phone CPUs, and close in quality
+    /// (UTMOS 4.36 against 4.45 in testing), so it reads ahead of the listener on every supported device.
     static let model = File(
-        name: "model.onnx", url: repository.appending(path: "onnx/model.onnx"), size: 325_532_232,
-        sha256: "8fbea51ea711f2af382e88c833d9e288c6dc82ce5e98421ea61c058ce21a34cb")
+        name: "model_quantized.onnx", url: repository.appending(path: "onnx/model_quantized.onnx"), size: 92_361_116,
+        sha256: "fbae9257e1e05ffc727e951ef9b9c98418e6d79f1c9b6b13bd59f5c9028a1478")
 
-    /// American English voices, best first (grades from the Kokoro model card).
+    /// American English voices, best first. Chosen from Kokoro's own grades and automatic naturalness scores;
+    /// the whispering and lowest-rated voices are left out.
     static let voices: [Voice] = [
         Voice(id: "af_heart", name: "Heart", isFemale: true, sha256: "d583ccff3cdca2f7fae535cb998ac07e9fcb90f09737b9a41fa2734ec44a8f0b"),
         Voice(id: "af_bella", name: "Bella", isFemale: true, sha256: "f69d836209b78eb8c66e75e3cda491e26ea838a3674257e9d4e5703cbaf55c8b"),
-        Voice(id: "af_nicole", name: "Nicole", isFemale: true, sha256: "cd2191ab31b914ed7b318416b0e4440fdf392ddad9106a060819aa600a64f59a"),
+        Voice(id: "af_kore", name: "Kore", isFemale: true, sha256: "9be5221b6a941c04b561959b8ff0b06e809444dcc4ab7e75a7b23606f691819e"),
+        Voice(id: "af_sarah", name: "Sarah", isFemale: true, sha256: "4409fbc125afabacc615d94db5398d847006a737b0247d6892b7a9a0007a2f0a"),
+        Voice(id: "af_aoede", name: "Aoede", isFemale: true, sha256: "4a004c33430762e2461eedb2013fad808ef4ab3121f5300f554476caf58d8361"),
         Voice(id: "am_michael", name: "Michael", isFemale: false, sha256: "1d1f21dd8da39c30705cd4c75d039d265e9bc4a2a93ed09bc9e1b1225eb95ba1"),
         Voice(id: "am_fenrir", name: "Fenrir", isFemale: false, sha256: "c27989f741f7ee34d273a39d8a595cc0837d35f5ced9a29b7cc162614616df43"),
         Voice(id: "am_puck", name: "Puck", isFemale: false, sha256: "fcf73c989033e9233e0b98713eca600c8c74dcc1614b37009d5450ff4a2274a0"),
-        Voice(id: "af_aoede", name: "Aoede", isFemale: true, sha256: "4a004c33430762e2461eedb2013fad808ef4ab3121f5300f554476caf58d8361"),
-        Voice(id: "af_kore", name: "Kore", isFemale: true, sha256: "9be5221b6a941c04b561959b8ff0b06e809444dcc4ab7e75a7b23606f691819e"),
-        Voice(id: "af_sarah", name: "Sarah", isFemale: true, sha256: "4409fbc125afabacc615d94db5398d847006a737b0247d6892b7a9a0007a2f0a"),
     ]
 
     static let defaultVoice = voices[0]
 
-    static func voice(id: String) -> Voice {
-        voices.first { $0.id == id } ?? defaultVoice
+    static func voice(id: String) -> Voice? {
+        voices.first { $0.id == id }
     }
+
+    /// Model and voices together, for the download size.
+    static var downloadSize: Int64 { model.size + voices.reduce(0) { $0 + $1.file.size } }
 
     /// Kokoro writes 24 kHz mono audio.
     static let sampleRate = 24_000.0
 
-    /// Whether the neural voices can read a book in `language`. They speak English only.
+    /// Whether the natural voices can read a book in `language`. They speak English only.
     static func supports(language: String?) -> Bool {
         guard let language, !language.isEmpty else { return true }
         return language.lowercased().hasPrefix("en")

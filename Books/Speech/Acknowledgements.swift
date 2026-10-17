@@ -35,7 +35,7 @@ struct AcknowledgementsView: View {
                     }
                 }
             } footer: {
-                Text("Studio voices and pronunciation run on this device. The full license texts are in THIRD_PARTY_NOTICES.md in the MB Books repository.")
+                Text("Natural voices and pronunciation run on this device. The full license texts are in THIRD_PARTY_NOTICES.md in the MB Books repository.")
             }
         }
         .navigationTitle("Acknowledgements")

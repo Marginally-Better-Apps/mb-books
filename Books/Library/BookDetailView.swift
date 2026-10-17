@@ -6,7 +6,6 @@ struct BookDetailView: View {
 
     @Environment(\.dismiss) private var dismiss
     @Environment(\.openBook) private var openBook
-    @Environment(LibraryStore.self) private var library
 
     var body: some View {
         NavigationStack {
@@ -51,23 +50,6 @@ struct BookDetailView: View {
                         .accessibilityLabel(book.wantToRead ? "Remove from Want to Read" : "Want to Read")
                     }
                     .padding(.horizontal)
-
-                    if NeuralVoiceCatalog.supports(language: book.language) {
-                        VStack(alignment: .leading, spacing: 12) {
-                            Label("Studio Audiobook", systemImage: "headphones").font(.headline)
-                            if NeuralVoiceStore.shared.isReady {
-                                PrepareAudiobookRow(
-                                    bookID: book.id, title: book.title, author: book.author,
-                                    voice: ListeningPreferences.load().neuralVoice, storage: library.storage)
-                            } else {
-                                VoiceModelRow()
-                            }
-                        }
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(16)
-                        .background(.background.secondary, in: .rect(cornerRadius: 16))
-                        .padding(.horizontal)
-                    }
 
                     if let summary = book.summary, !summary.isEmpty {
                         Text(summary)

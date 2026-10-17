@@ -200,6 +200,7 @@ final class ReaderModel {
             session.coverImage = UIImage(contentsOfFile: cover.path)
         }
         listening = session
+        session.prewarm()
         navigator?.clearSelection()
         Task { await session.start(fromSelection: fromSelection) }
     }

@@ -39,9 +39,6 @@ targets:
         UILaunchScreen: {}
         # Listening continues with the screen locked.
         UIBackgroundModes: [audio]
-        # Preparing a Studio audiobook continues in the background after the reader starts it.
-        BGTaskSchedulerPermittedIdentifiers:
-          - com.mbbooks.MBBooks.prepare.*
         UIApplicationSceneManifest:
           UIApplicationSupportsMultipleScenes: false
         UISupportedInterfaceOrientations:

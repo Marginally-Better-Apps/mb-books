@@ -32,7 +32,8 @@ nonisolated final class KokoroSynthesizer: @unchecked Sendable {
     static var recommendedThreads: Int {
         var count: Int32 = 0
         var size = MemoryLayout<Int32>.size
-        if sysctlbyname("hw.perflevel0.physicalcpu", &count, &size, nil, 0) == 0, count > 0 { return Int(count) }
+        // iPhones have two performance cores; iPads with M chips have more, but past four the gain is small.
+        if sysctlbyname("hw.perflevel0.physicalcpu", &count, &size, nil, 0) == 0, count > 0 { return min(Int(count), 4) }
         return max(1, min(4, ProcessInfo.processInfo.activeProcessorCount / 2))
     }
 

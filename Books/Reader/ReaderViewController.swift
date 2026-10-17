@@ -910,9 +910,12 @@ extension ReaderViewController: PageTurnDataSource {
 
     func pageTurn(toward side: PageTurn.Side) -> PageTurn? {
         guard current.isSettled, let document = current.document, document != .roll else { return nil }
-        if !isSpeechNavigation { model.userDidNavigate() }
-        model.popover = nil
-        model.hideChrome()
+        // Turns that follow the narration leave the controls and popovers alone; the reader may be using them.
+        if !isSpeechNavigation {
+            model.userDidNavigate()
+            model.popover = nil
+            model.hideChrome()
+        }
         let forward = side == .left || side == .right ? (side == .right) != isRTLProgression : side == .bottom
         if case .reflowable = document, !model.isScrollMode, let offset = adjacentPageOffset(toward: side) {
             return pageTurnWithinChapter(toward: side, to: offset)
