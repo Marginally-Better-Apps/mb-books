@@ -54,6 +54,39 @@ struct EmptyLibraryView: View {
     }
 }
 
+/// A cover with its progress underneath, as wide as the cover whatever its shape.
+private struct ContinueItem: View {
+    let book: Book
+    let source: String
+    @State private var coverWidth: CGFloat = 160
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            BookCover(book: book, cornerRadius: 6)
+                .frame(height: 250, alignment: .bottom)
+                .fixedSize(horizontal: true, vertical: false)
+                .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { coverWidth = max(100, $0) }
+                .zoomSource(source)
+            VStack(alignment: .leading, spacing: 4) {
+                ProgressView(value: book.progress)
+                    .tint(.primary)
+                HStack {
+                    Text("\(Int((book.progress * 100).rounded()))%")
+                        .font(.caption.weight(.semibold).monospacedDigit())
+                    Spacer(minLength: 4)
+                    if let opened = book.lastOpened {
+                        Text(opened, format: .relative(presentation: .named))
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                    }
+                }
+            }
+            .frame(width: coverWidth)
+        }
+    }
+}
+
 /// Large covers of books in progress, like Apple Books' "Continue" row.
 private struct ContinueCarousel: View {
     let books: [Book]
@@ -69,26 +102,7 @@ private struct ContinueCarousel: View {
                         Button {
                             openBook(book, source)
                         } label: {
-                            VStack(alignment: .leading, spacing: 10) {
-                                BookCover(book: book, cornerRadius: 6)
-                                    .frame(height: 250, alignment: .bottom)
-                                    .zoomSource(source)
-                                VStack(alignment: .leading, spacing: 4) {
-                                    ProgressView(value: book.progress)
-                                        .tint(.primary)
-                                    HStack {
-                                        Text("\(Int((book.progress * 100).rounded()))%")
-                                            .font(.caption.weight(.semibold).monospacedDigit())
-                                        Spacer()
-                                        if let opened = book.lastOpened {
-                                            Text(opened, format: .relative(presentation: .named))
-                                                .font(.caption)
-                                                .foregroundStyle(.secondary)
-                                        }
-                                    }
-                                }
-                                .frame(width: 160)
-                            }
+                            ContinueItem(book: book, source: source)
                         }
                         .buttonStyle(.plain)
                         .bookInteractions(book)

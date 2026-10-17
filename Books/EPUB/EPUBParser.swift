@@ -133,6 +133,9 @@ nonisolated enum EPUBParser {
             publication.tableOfContents = navigation?.toc ?? []
             if publication.pageList.isEmpty { publication.pageList = navigation?.pageList ?? [] }
         }
+        if publication.landmarks.isEmpty {
+            publication.landmarks = NavigationParser.parseGuide(package.child(named: "guide"), packagePath: packagePath)
+        }
         return publication
     }
 

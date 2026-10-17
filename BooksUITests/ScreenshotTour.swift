@@ -140,6 +140,142 @@ final class ScreenshotTour: XCTestCase {
         save("16-reader-dark")
     }
 
+    /// Captures listening: the controls, the highlight following along, and the listening options.
+    func testListenTour() throws {
+        let app = XCUIApplication()
+        guard let output = ProcessInfo.processInfo.environment["MB_TOUR_OUTPUT"] else {
+            throw XCTSkip("Set MB_TOUR_OUTPUT to run the screenshot tour.")
+        }
+        let outputURL = URL(filePath: output)
+        try FileManager.default.createDirectory(at: outputURL, withIntermediateDirectories: true)
+        func save(_ name: String) {
+            sleep(1)
+            try? XCUIScreen.main.screenshot().pngRepresentation.write(to: outputURL.appending(path: "l-\(name).png"))
+        }
+        app.launchArguments = ["-ui-testing", "-seed-sample-book"]
+        app.launch()
+        app.tabBars.buttons["Library"].tap()
+        let book = app.buttons["book.The Sample Voyage"]
+        XCTAssertTrue(book.waitForExistence(timeout: 15))
+        book.tap()
+        sleep(2)
+        app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+        save("01-chrome")
+        app.buttons["reader.listen"].tap()
+        sleep(3)
+        save("02-listening")
+        sleep(4)
+        save("03-following")
+        app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+        save("04-pill")
+        app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+        _ = app.buttons["listen.options"].waitForExistence(timeout: 3)
+        app.buttons["listen.options"].tap()
+        save("05-options")
+        for _ in 0..<8 where !(app.buttons["listen.contents"].exists && app.buttons["listen.contents"].isHittable) { app.swipeUp() }
+        app.buttons["listen.contents"].tap()
+        sleep(2)
+        save("06-whats-read")
+        app.navigationBars.buttons.element(boundBy: 0).tap()
+        for _ in 0..<8 where !app.buttons["voice.preview.george"].isHittable { app.swipeDown() }
+        save("07-voices")
+        app.buttons["voice.preview.george"].tap()
+        save("08-preview")
+        app.swipeUp()
+        save("09-apple-voices")
+        app.buttons["listen.done"].tap()
+        app.swipeLeft()
+        sleep(2)
+        app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+        save("10-return")
+    }
+
+    /// Starts listening to real books (with covers, front matter, and notes) and checks the app keeps running.
+    /// Needs `MB_LISTEN_DIR`, a folder of `.epub` files.
+    func testListenToImportedBooks() throws {
+        let environment = ProcessInfo.processInfo.environment
+        guard let books = environment["MB_LISTEN_DIR"] else { throw XCTSkip("Set MB_LISTEN_DIR to run.") }
+        let output = environment["MB_TOUR_OUTPUT"].map { URL(filePath: $0) }
+        if let output { try FileManager.default.createDirectory(at: output, withIntermediateDirectories: true) }
+        let app = XCUIApplication()
+        app.launchArguments = ["-ui-testing", "-import-directory", books]
+        if let models = environment["MB_VOICE_MODEL_DIR"] { app.launchEnvironment["MB_VOICE_MODEL_DIR"] = models }
+        app.launch()
+        app.tabBars.buttons["Library"].tap()
+        let book = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'book.'")).firstMatch
+        XCTAssertTrue(book.waitForExistence(timeout: 60))
+        book.tap()
+        sleep(3)
+        for _ in 0..<3 where !app.buttons["reader.listen"].exists {
+            app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+            _ = app.buttons["reader.listen"].waitForExistence(timeout: 3)
+        }
+        app.buttons["reader.listen"].tap()
+        for second in 0..<5 {
+            sleep(2)
+            XCTAssertEqual(app.state, .runningForeground, "The app keeps running while listening")
+            if let output {
+                try? XCUIScreen.main.screenshot().pngRepresentation.write(to: output.appending(path: "i-\(second).png"))
+            }
+        }
+        XCTAssertTrue(app.buttons["listen.playPause"].exists || app.buttons["listen.pill"].exists)
+        // What's read aloud, named from the book's table of contents.
+        if !app.buttons["listen.options"].exists { app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap() }
+        if app.buttons["listen.options"].waitForExistence(timeout: 3) {
+            app.buttons["listen.options"].tap()
+            for _ in 0..<8 where !(app.buttons["listen.contents"].exists && app.buttons["listen.contents"].isHittable) { app.swipeUp() }
+            app.buttons["listen.contents"].tap()
+            sleep(4)
+            if let output { try? XCUIScreen.main.screenshot().pngRepresentation.write(to: output.appending(path: "i-contents.png")) }
+            app.navigationBars.buttons.element(boundBy: 0).tap()
+            app.buttons["listen.done"].tap()
+        }
+        XCTAssertEqual(app.state, .runningForeground)
+        // Back home, the Continue shelf shows the book with progress as wide as its cover.
+        if !app.buttons["reader.close"].exists { app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap() }
+        app.buttons["reader.close"].tap()
+        app.tabBars.buttons["Home"].tap()
+        sleep(2)
+        if let output { try? XCUIScreen.main.screenshot().pngRepresentation.write(to: output.appending(path: "i-home.png")) }
+    }
+
+    /// Listens with a natural voice. Needs `MB_VOICE_MODEL_DIR`: a folder with `FlowLM.mlmodelc`, `Mimi.mlmodelc`, and `voices/*.bin`.
+    func testNaturalVoiceTour() throws {
+        let environment = ProcessInfo.processInfo.environment
+        guard let output = environment["MB_TOUR_OUTPUT"], let models = environment["MB_VOICE_MODEL_DIR"] else {
+            throw XCTSkip("Set MB_TOUR_OUTPUT and MB_VOICE_MODEL_DIR to run the natural voice tour.")
+        }
+        let outputURL = URL(filePath: output)
+        try FileManager.default.createDirectory(at: outputURL, withIntermediateDirectories: true)
+        func save(_ name: String) {
+            try? XCUIScreen.main.screenshot().pngRepresentation.write(to: outputURL.appending(path: "s-\(name).png"))
+        }
+        let app = XCUIApplication()
+        app.launchArguments = ["-ui-testing", "-seed-sample-book"]
+        app.launchEnvironment["MB_VOICE_MODEL_DIR"] = models
+        app.launch()
+        app.tabBars.buttons["Library"].tap()
+        let book = app.buttons["book.The Sample Voyage"]
+        XCTAssertTrue(book.waitForExistence(timeout: 15))
+        book.tap()
+        XCTAssertTrue(app.webViews.staticTexts["Departure"].waitForExistence(timeout: 30))
+        for _ in 0..<3 where !app.buttons["reader.listen"].exists {
+            app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+            _ = app.buttons["reader.listen"].waitForExistence(timeout: 3)
+        }
+        app.buttons["reader.listen"].tap()
+        XCTAssertTrue(app.buttons["listen.options"].waitForExistence(timeout: 10))
+        app.buttons["listen.options"].tap()
+        sleep(1)
+        save("01-voices")
+        app.buttons["voice.select.bill_boerst"].tap()
+        app.buttons["listen.done"].tap()
+        for second in 0..<8 {
+            sleep(2)
+            save(String(format: "02-playing-%02d", second))
+        }
+    }
+
     /// Drags pages slowly, cancels a turn, and flicks, in each style, for screen recordings of page turns.
     func testPageTurnTour() throws {
         guard ProcessInfo.processInfo.environment["MB_TOUR_OUTPUT"] != nil else {

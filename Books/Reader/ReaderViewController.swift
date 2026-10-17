@@ -19,6 +19,8 @@ final class ReaderViewController: UIViewController {
         case start
         case end
         case search(BookSearchResult, query: String)
+        /// A text offset, as the read-aloud script counts them.
+        case textOffset(Int)
 
         init(_ placement: ChapterView.Placement) {
             self = placement == .start ? .start : .end
@@ -28,7 +30,7 @@ final class ReaderViewController: UIViewController {
             switch self {
             case .start: .start
             case .end: .end
-            case .locator, .search: nil
+            case .locator, .search, .textOffset: nil
             }
         }
     }
@@ -63,6 +65,8 @@ final class ReaderViewController: UIViewController {
     /// A tap that arrived while a turn couldn't be cut short; it runs when that turn ends.
     private var queuedTurn: PageTurn.Side?
     private var hasSelection = false
+    /// Set while listening turns the page, so the turn isn't taken for the reader browsing.
+    private var isSpeechNavigation = false
 
     init(model: ReaderModel) {
         self.model = model
@@ -103,6 +107,7 @@ final class ReaderViewController: UIViewController {
         installPresenter()
         updateBackground()
         model.navigator = self
+        model.speechFollower = self
     }
 
     override func viewDidLayoutSubviews() {
@@ -160,7 +165,8 @@ final class ReaderViewController: UIViewController {
             search: { [weak self] text in
                 self?.model.searchQuery = text
                 self?.model.sheet = .search
-            })
+            },
+            listen: { [weak self] in self?.model.startListening(fromSelection: true) })
         chapter.webView.scrollView.panGestureRecognizer.addTarget(self, action: #selector(handleScrollPan(_:)))
         return chapter
     }
@@ -413,6 +419,8 @@ final class ReaderViewController: UIViewController {
                 ], in: chapter)
             case .start, .end, .locator:
                 _ = try? await call("MB.goToPosition(MB.positionFor(target))", ["target": positionTarget(target)], in: chapter)
+            case .textOffset(let offset):
+                _ = try? await call("MB.goToPosition(MB.positionForOffset(offset))", ["offset": offset], in: chapter)
             }
         case .roll:
             if case .locator(let locator) = target {
@@ -442,7 +450,7 @@ final class ReaderViewController: UIViewController {
             if let cfi = locator.cfi { result["cfi"] = cfi }
             if let fragment = locator.fragment { result["fragment"] = fragment }
             return result
-        case .search: return [:]
+        case .search, .textOffset: return [:]
         }
     }
 
@@ -845,6 +853,7 @@ final class ReaderViewController: UIViewController {
 
     /// In scroll mode, pulling past the top or bottom of a chapter moves to the adjacent one.
     @objc private func handleScrollPan(_ gesture: UIPanGestureRecognizer) {
+        if gesture.state == .began, model.isScrollMode { model.userDidNavigate() }
         guard gesture.state == .ended, model.isScrollMode, gesture.view === current.webView.scrollView,
               current.isSettled, case .reflowable = current.document
         else { return }
@@ -901,8 +910,12 @@ extension ReaderViewController: PageTurnDataSource {
 
     func pageTurn(toward side: PageTurn.Side) -> PageTurn? {
         guard current.isSettled, let document = current.document, document != .roll else { return nil }
-        model.popover = nil
-        model.hideChrome()
+        // Turns that follow the narration leave the controls and popovers alone; the reader may be using them.
+        if !isSpeechNavigation {
+            model.userDidNavigate()
+            model.popover = nil
+            model.hideChrome()
+        }
         let forward = side == .left || side == .right ? (side == .right) != isRTLProgression : side == .bottom
         if case .reflowable = document, !model.isScrollMode, let offset = adjacentPageOffset(toward: side) {
             return pageTurnWithinChapter(toward: side, to: offset)
@@ -963,6 +976,105 @@ extension ReaderViewController: ReaderNavigator {
         let script = "return cfis.map((cfi) => { const p = cfi ? MB.positionFor({ cfi }) : null; return p ? p.page : -1; })"
         let pages = (try? await call(script, ["cfis": cfis])) as? [Int] ?? []
         return cfis.indices.map { pages.indices.contains($0) && pages[$0] >= 0 ? pages[$0] : nil }
+    }
+}
+
+// MARK: - SpeechFollowing
+
+extension ReaderViewController: SpeechFollowing {
+    func visibleTextOffset() async -> (spineIndex: Int, offset: Int?)? {
+        switch current.document {
+        case .reflowable(let spineIndex):
+            let offset = (try? await call("return MB.firstVisibleOffset()")) as? Int
+            return (spineIndex, offset)
+        case .fixed(let indexes):
+            return indexes.min().map { ($0, nil) }
+        case .roll:
+            return (model.location.spineIndex, nil)
+        case nil:
+            return nil
+        }
+    }
+
+    func selectionTextOffset() async -> (spineIndex: Int, offset: Int)? {
+        guard case .reflowable(let spineIndex) = current.document,
+              let offset = (try? await call("return MB.selectionOffset()")) as? Int
+        else { return nil }
+        return (spineIndex, offset)
+    }
+
+    func markSpeech(spineIndex: Int, start: Int, end: Int, word: Range<Int>?, reveal: Bool) async -> SpeechMark? {
+        if current.document != .reflowable(spineIndex) {
+            guard reveal, publication.spine.indices.contains(spineIndex) else {
+                clearSpeech()
+                return nil
+            }
+            let document = document(containing: spineIndex)
+            guard case .reflowable = document else {
+                // Fixed layouts show the page; their text sits in iframes this script doesn't reach.
+                showSpineItem(spineIndex)
+                return nil
+            }
+            open(document, at: .textOffset(start))
+            // Wait for the chapter to be shown before marking it.
+            for _ in 0..<60 where !(current.document == document && current.isSettled) {
+                try? await Task.sleep(for: .milliseconds(50))
+            }
+            guard current.document == document, current.isSettled else { return nil }
+        }
+        guard current.isReady else { return nil }
+        var arguments: [String: Any] = ["start": start, "end": end]
+        if let word {
+            arguments["wordStart"] = word.lowerBound
+            arguments["wordEnd"] = word.upperBound
+        }
+        let script = word == nil
+            ? "return JSON.stringify(MB.speechMark(start, end))"
+            : "return JSON.stringify(MB.speechMark(start, end, wordStart, wordEnd))"
+        guard let json = try? await call(script, arguments) as? String, let data = json.data(using: .utf8) else { return nil }
+        return try? JSONDecoder().decode(SpeechMark.self, from: data)
+    }
+
+    func showSpeechPage(_ page: Int) {
+        guard case .reflowable = current.document, current.isSettled, !model.isScrollMode else { return }
+        let scrollView = current.webView.scrollView
+        let width = scrollView.bounds.width
+        guard width > 0 else { return }
+        let currentPage = Int((abs(scrollView.contentOffset.x) / width).rounded())
+        if page == currentPage + 1 || page == currentPage - 1 {
+            // Turn like the reader would, with the page-turn animation.
+            let forward = page > currentPage
+            isSpeechNavigation = true
+            turn(toward: forward != isRTLProgression ? .right : .left)
+            isSpeechNavigation = false
+        } else if page != currentPage {
+            let chapter = current!
+            Task {
+                _ = try? await call("MB.goToPosition({ page })", ["page": page], in: chapter)
+                await reportLocation()
+            }
+        }
+    }
+
+    func scrollSpeech(to y: Double) {
+        guard case .reflowable = current.document, current.isSettled else { return }
+        let scrollView = current.webView.scrollView
+        let maxY = max(0, scrollView.contentSize.height - scrollView.bounds.height)
+        scrollView.setContentOffset(CGPoint(x: 0, y: min(maxY, max(0, y))), animated: true)
+    }
+
+    func showSpineItem(_ spineIndex: Int) {
+        switch current.document {
+        case .fixed(let indexes) where indexes.contains(spineIndex): return
+        case .reflowable(spineIndex): return
+        default: go(to: Locator(spineIndex: spineIndex), animated: true)
+        }
+    }
+
+    func clearSpeech() {
+        for chapter in chapters where chapter.isReady {
+            Task { _ = try? await call("MB.speechClear()", in: chapter) }
+        }
     }
 }
 

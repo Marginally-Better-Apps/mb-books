@@ -130,12 +130,106 @@ final class LibraryFlowTests: XCTestCase {
         XCTAssertTrue(reachedChapterThree, "Scrolling past the end of a chapter should open the next one")
     }
 
+    func testListensFollowsAlongAndShowsWhatIsRead() throws {
+        app.tabBars.buttons["Library"].tap()
+        let book = app.buttons["book.The Sample Voyage"]
+        XCTAssertTrue(book.waitForExistence(timeout: launchTimeout))
+        book.tap()
+        XCTAssertTrue(app.webViews.staticTexts["Departure"].waitForExistence(timeout: launchTimeout))
+
+        showChrome()
+        app.buttons["reader.listen"].tap()
+        let playPause = app.buttons["listen.playPause"]
+        XCTAssertTrue(playPause.waitForExistence(timeout: 10), "Listening shows its controls")
+        XCTAssertTrue(app.buttons["listen.speed"].exists)
+
+        // What's read: every chapter, with the footnote and its marker left out.
+        app.buttons["listen.options"].tap()
+        let contents = app.buttons["listen.contents"]
+        XCTAssertTrue(app.buttons["listen.done"].waitForExistence(timeout: 5))
+        for _ in 0..<8 where !(contents.exists && contents.isHittable) { app.swipeUp() }
+        contents.tap()
+        XCTAssertTrue(app.staticTexts["Departure"].waitForExistence(timeout: 10))
+        XCTAssertTrue(app.staticTexts["Landfall"].exists)
+        XCTAssertTrue(app.staticTexts.matching(NSPredicate(format: "label CONTAINS 'note reference'")).firstMatch.exists,
+                      "The footnote marker is listed as left out")
+        app.navigationBars.buttons.element(boundBy: 0).tap()
+        app.buttons["listen.done"].tap()
+
+        // Turning the page by hand stops following until the reader asks to return.
+        app.swipeLeft()
+        let returnButton = app.buttons["listen.return"]
+        if !returnButton.waitForExistence(timeout: 5) {
+            showChrome()
+        }
+        XCTAssertTrue(returnButton.waitForExistence(timeout: 5), "Paging away offers a way back to the narration")
+        returnButton.tap()
+        XCTAssertTrue(wait(for: returnButton, toMatch: "exists == false"))
+
+        showChrome()
+        app.buttons["listen.stop"].tap()
+        XCTAssertTrue(wait(for: playPause, toMatch: "exists == false"), "Stopping hides the controls")
+    }
+
+    func testPreviewingAndChoosingAVoiceNeverStartsTheBook() throws {
+        app.tabBars.buttons["Library"].tap()
+        let book = app.buttons["book.The Sample Voyage"]
+        XCTAssertTrue(book.waitForExistence(timeout: launchTimeout))
+        book.tap()
+        XCTAssertTrue(app.webViews.staticTexts["Departure"].waitForExistence(timeout: launchTimeout))
+        showChrome()
+        app.buttons["reader.listen"].tap()
+        let playPause = app.buttons["listen.playPause"]
+        XCTAssertTrue(playPause.waitForExistence(timeout: 10))
+        XCTAssertTrue(wait(for: playPause, toMatch: "label == 'Pause'"), "Listening starts playing")
+        playPause.tap()
+        XCTAssertTrue(wait(for: playPause, toMatch: "label == 'Play'"))
+
+        app.buttons["listen.options"].tap()
+        // Natural voices can be heard before they're downloaded.
+        let naturalPreview = app.buttons["voice.preview.george"]
+        XCTAssertTrue(naturalPreview.waitForExistence(timeout: 5))
+        naturalPreview.tap()
+        XCTAssertTrue(wait(for: naturalPreview, toMatch: "label == 'Stop Sample'"), "The sample plays")
+        naturalPreview.tap()
+        XCTAssertTrue(wait(for: naturalPreview, toMatch: "label BEGINSWITH 'Play Sample'"))
+
+        // Choose a different Apple voice while paused.
+        let systemVoices = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'voice.select.com.apple'"))
+        var identifier: String?
+        for _ in 0..<6 where identifier == nil {
+            // Let the list stop coasting, or the tap only stops the scroll.
+            sleep(1)
+            // Rows under the sheet's translucent header still count as hittable; take one well inside the list.
+            let top = app.buttons["listen.done"].frame.maxY + 60
+            identifier = systemVoices.allElementsBoundByIndex
+                .first { $0.isHittable && !$0.isSelected && $0.frame.minY > top }?.identifier
+            if identifier == nil { app.swipeUp() }
+        }
+        let choice = app.buttons[try XCTUnwrap(identifier, "An Apple voice to choose")]
+        choice.tap()
+        XCTAssertTrue(wait(for: choice, toMatch: "isSelected == true"), "The voice is chosen")
+        app.buttons["listen.done"].tap()
+
+        showChrome()
+        XCTAssertTrue(playPause.waitForExistence(timeout: 5))
+        sleep(2)
+        XCTAssertEqual(playPause.label, "Play", "Choosing a voice leaves the book paused")
+        playPause.tap()
+        XCTAssertTrue(wait(for: playPause, toMatch: "label == 'Pause'"), "Resuming reads with the new voice")
+        app.buttons["listen.stop"].tap()
+    }
+
     func testSettingsShowsAppearanceAndRepositoryLink() throws {
         XCTAssertTrue(app.buttons["settings.open"].firstMatch.waitForExistence(timeout: launchTimeout))
         app.buttons["settings.open"].firstMatch.tap()
         XCTAssertTrue(app.buttons["Dark"].waitForExistence(timeout: launchTimeout))
         app.buttons["Dark"].tap()
-        XCTAssertTrue(app.buttons["settings.github"].exists)
+        // The About section sits below Listening and Library.
+        let github = app.buttons["settings.github"]
+        for _ in 0..<4 where !github.isHittable { app.swipeUp() }
+        XCTAssertTrue(github.exists)
+        XCTAssertTrue(app.buttons["Download Natural Voices"].exists || app.staticTexts["Listening"].exists)
         app.buttons["settings.done"].tap()
     }
 

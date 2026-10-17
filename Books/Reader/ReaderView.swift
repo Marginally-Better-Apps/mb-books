@@ -82,6 +82,8 @@ private struct ReaderScreen: View {
             case .contents: ContentsView(model: model)
             case .themes: ThemesView(model: model, isRegularWidth: horizontalSizeClass == .regular)
             case .search: BookSearchView(model: model)
+            case .listen:
+                if let session = model.listening { ListenSettingsView(session: session) }
             }
         }
         .sheet(item: $model.editingNote) { annotation in
@@ -148,7 +150,22 @@ private struct ReaderScreen: View {
                         .transition(.opacity)
                 }
                 Spacer()
-                Color.clear.frame(width: 44, height: 44)
+                if model.isChromeVisible {
+                    Button {
+                        if model.isListening { model.sheet = .listen } else { model.startListening() }
+                    } label: {
+                        Image(systemName: model.isListening ? "headphones.circle.fill" : "headphones")
+                            .font(.system(size: 17, weight: .semibold))
+                            .frame(width: 30, height: 30)
+                    }
+                    .buttonStyle(.glass)
+                    .buttonBorderShape(.circle)
+                    .accessibilityLabel(model.isListening ? "Listening Options" : "Listen")
+                    .accessibilityIdentifier("reader.listen")
+                    .transition(.opacity.combined(with: .scale(scale: 0.8)))
+                } else {
+                    Color.clear.frame(width: 44, height: 44)
+                }
             }
             .overlay(alignment: .topTrailing) {
                 if model.isBookmarked {
@@ -194,6 +211,11 @@ private struct ReaderScreen: View {
     private var menuLayer: some View {
         VStack {
             Spacer()
+            if let session = model.listening, session.isActive, model.isChromeVisible, !isMenuOpen {
+                ListenBar(session: session) { model.sheet = .listen }
+                    .padding(.bottom, 4)
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+            }
             HStack {
                 Spacer()
                 GlassEffectContainer(spacing: 16) {
@@ -201,6 +223,8 @@ private struct ReaderScreen: View {
                         ReaderMenu(model: model, close: { setMenu(open: false) })
                             .glassEffect(.regular, in: .rect(cornerRadius: 28))
                             .glassEffectID("menu", in: glass)
+                    } else if !model.isChromeVisible, let session = model.listening, session.isActive {
+                        ListenPill(session: session)
                     } else if model.isChromeVisible {
                         Button {
                             setMenu(open: true)

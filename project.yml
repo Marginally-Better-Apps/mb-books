@@ -29,6 +29,8 @@ targets:
         ITSAppUsesNonExemptEncryption: false
         LSSupportsOpeningDocumentsInPlace: false
         UILaunchScreen: {}
+        # Listening continues with the screen locked.
+        UIBackgroundModes: [audio]
         UIApplicationSceneManifest:
           UIApplicationSupportsMultipleScenes: false
         UISupportedInterfaceOrientations:
