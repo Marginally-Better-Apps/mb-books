@@ -187,11 +187,12 @@ final class ReaderLogicTests: XCTestCase {
         XCTAssertGreaterThan(wideMargins.side, padPortrait.side, "The margin setting still widens capped margins")
     }
 
-    func testScrollFadesSitBehindTheChrome() {
+    func testScrollFadesHugTheEdges() {
         let stops = ReaderLayout.scrollFadeStops(height: 1000, safeArea: UIEdgeInsets(top: 60, left: 0, bottom: 30, right: 0))
         XCTAssertEqual(stops.count, 4)
-        XCTAssertEqual(stops[0], 0.09, accuracy: 1e-9, "Text is gone behind the book title")
-        XCTAssertEqual(stops[3], 0.934, accuracy: 1e-9, "…and behind the page label")
+        XCTAssertEqual(stops[0], 0.03, accuracy: 1e-9, "Text fades out only at the very top")
+        XCTAssertEqual(stops[3], 0.988, accuracy: 1e-9, "…and the very bottom")
+        XCTAssertGreaterThan(stops[2] - stops[1], 0.85, "Most of the screen shows the book")
         XCTAssertEqual(stops, stops.sorted())
         let layout = ReaderLayout(size: CGSize(width: 402, height: 1000), safeArea: UIEdgeInsets(top: 60, left: 0, bottom: 30, right: 0),
                                   margins: 1, fontScale: 1, scrolls: true, allowsColumns: true)
