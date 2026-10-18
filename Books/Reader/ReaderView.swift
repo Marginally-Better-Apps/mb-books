@@ -98,6 +98,13 @@ private struct ReaderScreen: View {
             if phase == .active { model.startReadingClock() } else { model.stopReadingClock() }
         }
         .onChange(of: model.isChromeVisible) { _, visible in if !visible { setMenu(open: false) } }
+        // While the book is read aloud, the controls step aside after a moment so they don't cover the words being read.
+        .task(id: [model.isChromeVisible, model.listening?.isPlaying == true, isMenuOpen, model.sheet == nil]) {
+            guard model.isChromeVisible, model.listening?.isPlaying == true, !isMenuOpen, model.sheet == nil else { return }
+            try? await Task.sleep(for: .seconds(4))
+            guard !Task.isCancelled else { return }
+            model.hideChrome()
+        }
         .onDisappear {
             model.close()
             orientationLock.unlock()

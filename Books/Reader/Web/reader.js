@@ -725,8 +725,13 @@
       const rect = placeOfOffset(index, typeof wordStart === 'number' ? wordStart : start, end);
       if (!rect) return null;
       const top = state.config.insets ? state.config.insets.top : 0;
-      const bottom = window.innerHeight - (state.config.insets ? state.config.insets.bottom : 0);
-      return { visible: rect.top >= top && rect.bottom <= bottom, y: Math.max(0, rect.top + window.scrollY - top - 80) };
+      // The listening controls float over the bottom of the screen, so reading stays above them: once the voice
+      // reaches the bottom quarter, the text scrolls up to put it a third of the way down.
+      const bottom = window.innerHeight * 0.75;
+      return {
+        visible: rect.top >= top && rect.bottom <= bottom,
+        y: Math.max(0, rect.top + window.scrollY - Math.max(top + 40, window.innerHeight / 3)),
+      };
     }
     const startPage = pageAt(index, start, end);
     if (startPage === null) return null;
