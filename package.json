@@ -16,5 +16,8 @@
     "@semantic-release/release-notes-generator": "14.1.1",
     "conventional-changelog-conventionalcommits": "10.4.1",
     "semantic-release": "25.0.9"
+  },
+  "overrides": {
+    "conventional-changelog-writer": "^9.3.0"
   }
 }
