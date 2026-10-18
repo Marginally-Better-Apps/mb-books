@@ -11,6 +11,8 @@ final class VoicePreview: NSObject {
     private(set) var playingID: String?
 
     private var player: AVAudioPlayer?
+    /// UI tests loop samples so a slow simulator still sees one playing.
+    private let loopsSamples = ProcessInfo.processInfo.arguments.contains("-ui-testing")
     private let synthesizer = AVSpeechSynthesizer()
 
     override init() {
@@ -27,6 +29,7 @@ final class VoicePreview: NSObject {
         guard let url = voice.previewURL, let player = try? AVAudioPlayer(contentsOf: url) else { return }
         activateSession()
         player.delegate = self
+        if loopsSamples { player.numberOfLoops = -1 }
         self.player = player
         playingID = voice.id
         player.play()

@@ -36,7 +36,11 @@ struct ReaderView: View {
         guard model == nil else { return }
         let container = library.storage.container(for: book.id)
         let result = await Task.detached(priority: .userInitiated) {
-            Result(catching: { try EPUBParser.parse(container) })
+            Result(catching: {
+                let publication = try EPUBParser.parse(container)
+                ContentNormalizer.normalizeIfNeeded(publication, in: container.root)
+                return publication
+            })
         }.value
         switch result {
         case .success(let publication):
@@ -48,6 +52,9 @@ struct ReaderView: View {
 }
 
 private struct ReaderScreen: View {
+    /// UI tests turn off auto-hiding so the listening controls don't vanish between finding and tapping them.
+    static let keepsControlsVisible = ProcessInfo.processInfo.arguments.contains("-ui-testing")
+
     @Bindable var model: ReaderModel
 
     @Environment(\.dismiss) private var dismiss
@@ -100,7 +107,8 @@ private struct ReaderScreen: View {
         .onChange(of: model.isChromeVisible) { _, visible in if !visible { setMenu(open: false) } }
         // While the book is read aloud, the controls step aside after a moment so they don't cover the words being read.
         .task(id: [model.isChromeVisible, model.listening?.isPlaying == true, isMenuOpen, model.sheet == nil]) {
-            guard model.isChromeVisible, model.listening?.isPlaying == true, !isMenuOpen, model.sheet == nil else { return }
+            guard model.isChromeVisible, model.listening?.isPlaying == true, !isMenuOpen, model.sheet == nil,
+                  !Self.keepsControlsVisible else { return }
             try? await Task.sleep(for: .seconds(4))
             guard !Task.isCancelled else { return }
             model.hideChrome()
