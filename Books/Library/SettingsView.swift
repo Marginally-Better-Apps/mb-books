@@ -10,6 +10,7 @@ struct SettingsView: View {
     @AppStorage(GoalDefaults.dailyMinutesKey) private var dailyGoal = GoalDefaults.dailyMinutes
     @AppStorage(GoalDefaults.yearlyBooksKey) private var yearlyGoal = GoalDefaults.yearlyBooks
     @Query private var books: [Book]
+    private var voiceStore: NeuralVoiceStore { .shared }
 
     var body: some View {
         NavigationStack {
@@ -37,6 +38,18 @@ struct SettingsView: View {
                     Stepper(value: $yearlyGoal, in: 1...365) {
                         LabeledContent("Books Per Year", value: "\(yearlyGoal)")
                     }
+                }
+
+                Section {
+                    VoiceModelRow()
+                    if voiceStore.isReady {
+                        Button("Delete Natural Voices", role: .destructive) { voiceStore.delete() }
+                    }
+                    NavigationLink("Acknowledgements") { AcknowledgementsView() }
+                } header: {
+                    Text("Listening")
+                } footer: {
+                    Text("Listening works offline. Natural voices need a one-time download and read English books; Apple voices read every language.")
                 }
 
                 Section("Library") {

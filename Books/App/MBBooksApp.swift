@@ -35,6 +35,11 @@ struct MBBooksApp: App {
                 .environment(OrientationLock.shared)
                 .preferredColorScheme(appearance.colorScheme)
                 .task { await LaunchConfiguration.current.seedIfNeeded(library: library, context: container.mainContext) }
+                .task {
+                    // Earlier builds kept a larger voice model and prepared audiobooks; give that space back.
+                    let books = (try? container.mainContext.fetch(FetchDescriptor<Book>())) ?? []
+                    await NeuralVoiceStore.removeRetiredFiles(bookFolders: books.map { library.storage.folder(for: $0.id) })
+                }
         }
         .modelContainer(container)
     }

@@ -23,20 +23,20 @@ struct ReaderLayout: Equatable {
         let measure = Self.readableMeasure * max(1, fontScale) / max(margins, 0.1)
         let columnWidth = size.width / CGFloat(columns)
         side = max(margin, (columnWidth - measure) / 2)
-        // Scroll mode leaves room for the fades, so the first and last lines rest clear of them.
-        top = safeArea.top + (scrolls ? 72 : (isWide ? 52 : 40))
-        bottom = safeArea.bottom + (scrolls ? 84 : (isWide ? 44 : 34))
+        // Scroll mode runs text nearly to the edges; the first and last lines still rest clear of the thin fades.
+        top = safeArea.top + (scrolls ? 12 : (isWide ? 52 : 40))
+        bottom = safeArea.bottom + (scrolls ? 20 : (isWide ? 44 : 34))
     }
 
-    /// Where scroll mode's mask fades text out behind the book title and the page label:
-    /// clear, opaque, opaque, clear, as fractions of the height.
+    /// Where scroll mode's mask fades text out at the very edges of the screen, so it reads as
+    /// running off the page: clear, opaque, opaque, clear, as fractions of the height.
     static func scrollFadeStops(height: CGFloat, safeArea: UIEdgeInsets) -> [CGFloat] {
         guard height > 0 else { return [0, 0, 1, 1] }
         let stops = [
-            safeArea.top + 30,
-            safeArea.top + 64,
-            height - safeArea.bottom - 76,
-            height - safeArea.bottom - 36,
+            safeArea.top * 0.5,
+            safeArea.top + 4,
+            height - safeArea.bottom - 10,
+            height - safeArea.bottom * 0.4,
         ]
         return stops.map { min(max($0 / height, 0), 1) }
     }

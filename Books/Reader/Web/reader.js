@@ -48,6 +48,11 @@
       .join('');
     css += '::highlight(mb-underline){text-decoration:underline;text-decoration-color:#ff3b30;text-decoration-thickness:2px;}';
     css += '::highlight(mb-search){background-color:rgba(255,159,10,.55);}';
+    // Read aloud: boxes over the sentence being spoken and the word within it (see `drawSpeech`).
+    css += '#mb-speech-layer{position:absolute;left:0;top:0;width:0;height:0;pointer-events:none;z-index:2147483646;}';
+    css += '#mb-speech-layer>div{position:absolute;border-radius:3px;}';
+    css += `#mb-speech-layer>.sentence{background-color:rgba(10,132,255,${dark ? 0.2 : 0.12});}`;
+    css += `#mb-speech-layer>.word{background-color:rgba(10,132,255,${dark ? 0.38 : 0.26});}`;
     return css;
   }
 
@@ -216,6 +221,8 @@
     state.textNodes = null;
     applyStyles();
     padColumns();
+    // Text moved: put the read-aloud boxes back over it.
+    if (state.speech) drawSpeech();
     const info = layoutInfo();
     if (state.ready) {
       info.reason = reason;
@@ -578,6 +585,207 @@
   }
 
   // ---------------------------------------------------------------------------
+  // Read aloud. Native code addresses text by UTF-16 offset into the concatenated text nodes,
+  // the same offsets `BookSearcher.bodyText` produces, so speech scripts built in Swift line up.
+
+  /// Cached with the text nodes: highlighting asks for this on every spoken word.
+  function textStarts() {
+    const nodes = textNodes();
+    if (state.textStarts && state.textStarts.nodes === nodes) return state.textStarts;
+    const starts = [];
+    let total = 0;
+    for (const node of nodes) { starts.push(total); total += node.length; }
+    state.textStarts = { nodes, starts, total };
+    return state.textStarts;
+  }
+
+  function locateOffset(index, absolute) {
+    const { nodes, starts } = index;
+    if (!nodes.length) return null;
+    let low = 0;
+    let high = starts.length - 1;
+    while (low < high) {
+      const mid = (low + high + 1) >> 1;
+      if (starts[mid] <= absolute) low = mid; else high = mid - 1;
+    }
+    return { node: nodes[low], offset: Math.max(0, Math.min(nodes[low].length, absolute - starts[low])) };
+  }
+
+  function offsetOf(node, offset) {
+    const { nodes, starts } = textStarts();
+    const index = isText(node) ? nodes.indexOf(node) : -1;
+    if (index >= 0) return starts[index] + (offset || 0);
+    // An element boundary: the first text node at or after it.
+    for (let i = 0; i < nodes.length; i += 1) {
+      const position = node.compareDocumentPosition(nodes[i]);
+      if (position & Node.DOCUMENT_POSITION_FOLLOWING || position & Node.DOCUMENT_POSITION_CONTAINED_BY) return starts[i];
+    }
+    return null;
+  }
+
+  function rangeForOffsets(index, start, end) {
+    const a = locateOffset(index, start);
+    const b = locateOffset(index, Math.max(start, end));
+    if (!a || !b) return null;
+    const range = document.createRange();
+    try {
+      range.setStart(a.node, a.offset);
+      range.setEnd(b.node, b.offset);
+    } catch (_) { return null; }
+    return range;
+  }
+
+  /// The page (or scroll offset) showing the character at `absolute`, skipping characters without boxes.
+  function placeOfOffset(index, absolute, limit) {
+    for (let at = absolute; at < Math.min(limit, absolute + 64); at += 1) {
+      const position = locateOffset(index, at);
+      if (!position || position.offset >= position.node.length) continue;
+      const rects = rangeRects(position.node, position.offset, position.offset + 1);
+      const rect = rects[0];
+      if (rect && (rect.width || rect.height)) return rect;
+    }
+    return null;
+  }
+
+  function pageAt(index, absolute, limit) {
+    const rect = placeOfOffset(index, absolute, limit);
+    return rect ? pageOfRect(rect) : null;
+  }
+
+  // The sentence and word are drawn as boxes over the text rather than with CSS highlights: iOS doesn't always
+  // repaint a changed highlight, which left earlier words lit until the page scrolled.
+  function speechLayer() {
+    let layer = document.getElementById('mb-speech-layer');
+    if (!layer) {
+      layer = document.createElement('div');
+      layer.id = 'mb-speech-layer';
+      layer.setAttribute('aria-hidden', 'true');
+      // Outside <body>, so it never counts as text.
+      document.documentElement.appendChild(layer);
+    }
+    return layer;
+  }
+
+  /// A range's boxes, one per line: inline elements inside a line would otherwise overlap and double the tint.
+  function lineBoxes(range) {
+    const lines = [];
+    for (const rect of range.getClientRects()) {
+      if (!rect.width || !rect.height) continue;
+      const line = lines.find((l) => Math.abs(l.top - rect.top) < 3 && Math.abs(l.bottom - rect.bottom) < 3 &&
+        rect.left <= l.right + 2 && rect.right >= l.left - 2);
+      if (line) {
+        line.left = Math.min(line.left, rect.left);
+        line.right = Math.max(line.right, rect.right);
+      } else {
+        lines.push({ left: rect.left, right: rect.right, top: rect.top, bottom: rect.bottom });
+      }
+    }
+    return lines;
+  }
+
+  /// Draws `state.speech` (or nothing), in document coordinates so the boxes scroll with the text.
+  function drawSpeech() {
+    const layer = speechLayer();
+    const boxes = [];
+    const speech = state.speech;
+    if (speech) {
+      const index = textStarts();
+      const sentence = rangeForOffsets(index, speech.start, speech.end);
+      if (sentence) for (const box of lineBoxes(sentence)) boxes.push(['sentence', box]);
+      if (typeof speech.wordStart === 'number') {
+        const word = rangeForOffsets(index, speech.wordStart, speech.wordEnd);
+        if (word) for (const box of lineBoxes(word)) boxes.push(['word', box]);
+      }
+    }
+    while (layer.children.length < boxes.length) layer.appendChild(document.createElement('div'));
+    while (layer.children.length > boxes.length) layer.lastChild.remove();
+    boxes.forEach(([kind, box], i) => {
+      const div = layer.children[i];
+      div.className = kind;
+      div.style.left = `${box.left + window.scrollX - 1}px`;
+      div.style.top = `${box.top + window.scrollY}px`;
+      div.style.width = `${box.right - box.left + 2}px`;
+      div.style.height = `${box.bottom - box.top}px`;
+    });
+    return !!speech && boxes.length > 0;
+  }
+
+  /// Marks the sentence (and word) being read. `sequence` orders the calls: native code may send them out of
+  /// order, and an older mark must never replace a newer one.
+  function speechMark(start, end, wordStart, wordEnd, sequence) {
+    if (typeof sequence === 'number') {
+      if (sequence < (state.speechSequence || 0)) return null;
+      state.speechSequence = sequence;
+    }
+    state.speech = { start, end, wordStart, wordEnd };
+    const drawn = drawSpeech();
+    if (!drawn || isFixed()) return null;
+    const index = textStarts();
+    if (!isPaginated()) {
+      const rect = placeOfOffset(index, typeof wordStart === 'number' ? wordStart : start, end);
+      if (!rect) return null;
+      const top = state.config.insets ? state.config.insets.top : 0;
+      // The listening controls float over the bottom of the screen, so reading stays above them: once the voice
+      // reaches the bottom quarter, the text scrolls up to put it a third of the way down.
+      const bottom = window.innerHeight * 0.75;
+      return {
+        visible: rect.top >= top && rect.bottom <= bottom,
+        y: Math.max(0, rect.top + window.scrollY - Math.max(top + 40, window.innerHeight / 3)),
+      };
+    }
+    const startPage = pageAt(index, start, end);
+    if (startPage === null) return null;
+    const endPage = pageAt(index, Math.max(start, end - 1), end) ?? startPage;
+    // Where a sentence that runs onto the next page crosses over, so the page can turn mid-sentence.
+    let breakOffset = null;
+    if (endPage !== startPage) {
+      let low = start;
+      let high = end - 1;
+      while (low < high) {
+        const mid = (low + high) >> 1;
+        const page = pageAt(index, mid, end);
+        if (page !== null && page > startPage) high = mid; else low = mid + 1;
+      }
+      breakOffset = low;
+    }
+    const wordPage = typeof wordStart === 'number' ? pageAt(index, wordStart, end) : null;
+    return { startPage, endPage, breakOffset, wordPage, currentPage: currentPage() };
+  }
+
+  function speechClear(sequence) {
+    if (typeof sequence === 'number') {
+      if (sequence < (state.speechSequence || 0)) return;
+      state.speechSequence = sequence;
+    }
+    state.speech = null;
+    drawSpeech();
+  }
+
+  function positionForOffset(absolute) {
+    const index = textStarts();
+    const rect = placeOfOffset(index, absolute, index.total);
+    if (!rect) return isPaginated() ? { page: 0 } : { y: 0 };
+    if (isPaginated()) return { page: pageOfRect(rect) };
+    const top = state.config.insets ? state.config.insets.top : 0;
+    return { y: Math.max(0, rect.top + window.scrollY - top - 80) };
+  }
+
+  function firstVisibleOffset() {
+    if (isFixed()) return 0;
+    const position = firstVisiblePosition();
+    if (!position) return 0;
+    return offsetOf(position.node, isText(position.node) ? position.offset : null) || 0;
+  }
+
+  function selectionOffset() {
+    const selected = window.getSelection();
+    if (!selected || !selected.rangeCount) return null;
+    const range = selected.getRangeAt(0);
+    const start = normalizedBoundary(range.startContainer, range.startOffset);
+    return offsetOf(start.node, isText(start.node) ? start.offset : null);
+  }
+
+  // ---------------------------------------------------------------------------
   // Taps, links, and footnotes
 
   const INTERACTIVE = 'video, audio, button, input, select, textarea, label, summary, details, iframe, object, embed, ' +
@@ -812,6 +1020,11 @@
       return !!highlightAt(x, y);
     },
     find,
+    speechMark,
+    speechClear,
+    positionForOffset,
+    firstVisibleOffset,
+    selectionOffset,
     cfiFor,
     resolveCFI: (cfi) => { const p = resolveCFI(cfi); return p ? cfiFor(p.node, p.offset) : null; },
   });
