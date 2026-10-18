@@ -53,7 +53,7 @@ struct ReaderView: View {
 
 private struct ReaderScreen: View {
     /// UI tests turn off auto-hiding so the listening controls don't vanish between finding and tapping them.
-    static let keepsControlsVisible = ProcessInfo.processInfo.arguments.contains("-keep-reader-controls")
+    static let keepsControlsVisible = ProcessInfo.processInfo.arguments.contains("-ui-testing")
 
     @Bindable var model: ReaderModel
 

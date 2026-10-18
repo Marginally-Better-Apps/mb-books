@@ -16,7 +16,7 @@ final class LibraryFlowTests: XCTestCase {
     private lazy var app: XCUIApplication = {
         continueAfterFailure = false
         let app = XCUIApplication()
-        app.launchArguments = ["-ui-testing", "-seed-sample-book", "-keep-reader-controls"]
+        app.launchArguments = ["-ui-testing", "-seed-sample-book"]
         app.launch()
         return app
     }()
