@@ -37,8 +37,7 @@ final class LibraryFlowTests: XCTestCase {
         XCTAssertTrue(pageLabel.label.contains("of"), "Paginated books show “x of y”, got \(pageLabel.label)")
 
         // Contents: jump to the nested "The Storm" entry in chapter 2.
-        app.buttons["reader.menu"].tap()
-        app.buttons["reader.menu.contents"].tap()
+        openMenu("reader.menu.contents").tap()
         let storm = app.buttons["The Storm"]
         XCTAssertTrue(storm.waitForExistence(timeout: 5))
         storm.tap()
@@ -46,9 +45,7 @@ final class LibraryFlowTests: XCTestCase {
             .waitForExistence(timeout: 10), "Navigating to a nested TOC entry should load chapter 2")
 
         // Themes: switch to Calm and increase the font size.
-        showChrome()
-        app.buttons["reader.menu"].tap()
-        app.buttons["reader.menu.themes"].tap()
+        openMenu("reader.menu.themes").tap()
         let calm = app.buttons["theme.calm"]
         XCTAssertTrue(calm.waitForExistence(timeout: 5))
         // Slow simulators can still be sliding the sheet up; a tap then lands nowhere.
@@ -62,12 +59,8 @@ final class LibraryFlowTests: XCTestCase {
         app.buttons["Done"].firstMatch.tap()
 
         // Bookmark the page, then confirm it is listed.
-        showChrome()
-        app.buttons["reader.menu"].tap()
-        app.buttons["reader.bookmark"].tap()
-        showChrome()
-        app.buttons["reader.menu"].tap()
-        app.buttons["reader.menu.contents"].tap()
+        openMenu("reader.bookmark").tap()
+        openMenu("reader.menu.contents").tap()
         app.buttons["Bookmarks"].tap()
         XCTAssertTrue(app.staticTexts["Open Water"].waitForExistence(timeout: 5))
         app.buttons["Done"].firstMatch.tap()
@@ -157,12 +150,15 @@ final class LibraryFlowTests: XCTestCase {
         app.buttons["listen.done"].tap()
 
         // Turning the page by hand stops following until the reader asks to return.
-        app.swipeLeft()
+        // The button sits in the controls, which hide by themselves while listening.
         let returnButton = app.buttons["listen.return"]
-        if !returnButton.waitForExistence(timeout: 5) {
+        for _ in 0..<3 where !returnButton.exists {
+            app.swipeLeft()
+            if returnButton.waitForExistence(timeout: 2) { break }
             showChrome()
+            _ = returnButton.waitForExistence(timeout: 3)
         }
-        XCTAssertTrue(returnButton.waitForExistence(timeout: 5), "Paging away offers a way back to the narration")
+        XCTAssertTrue(returnButton.exists, "Paging away offers a way back to the narration")
         returnButton.tap()
         XCTAssertTrue(wait(for: returnButton, toMatch: "exists == false"))
 
@@ -234,9 +230,7 @@ final class LibraryFlowTests: XCTestCase {
     }
 
     private func choosePageTurn(_ style: String) {
-        showChrome()
-        app.buttons["reader.menu"].tap()
-        app.buttons["reader.menu.themes"].tap()
+        openMenu("reader.menu.themes").tap()
         let menu = app.buttons["themes.pageTurn"]
         XCTAssertTrue(menu.waitForExistence(timeout: 5))
         menu.tap()
@@ -263,10 +257,26 @@ final class LibraryFlowTests: XCTestCase {
         return XCTWaiter().wait(for: [expectation], timeout: timeout) == .completed
     }
 
+    /// Shows the reader's controls. They can fade mid-animation or, while listening, hide on their own
+    /// after a few seconds, so a single tap isn't enough.
     private func showChrome() {
-        if !app.buttons["reader.menu"].exists {
+        let menu = app.buttons["reader.menu"]
+        for _ in 0..<3 where !menu.waitForExistence(timeout: 1) {
             app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+            if menu.waitForExistence(timeout: 2) { break }
         }
-        XCTAssertTrue(app.buttons["reader.menu"].waitForExistence(timeout: 5))
+        XCTAssertTrue(menu.exists)
+    }
+
+    /// Opens the reading menu and returns its `item` button, retrying if the controls hid meanwhile.
+    private func openMenu(_ item: String) -> XCUIElement {
+        let button = app.buttons[item]
+        for _ in 0..<3 {
+            showChrome()
+            app.buttons["reader.menu"].tap()
+            if button.waitForExistence(timeout: 3) { break }
+        }
+        XCTAssertTrue(button.exists, "The reading menu should offer \(item)")
+        return button
     }
 }
