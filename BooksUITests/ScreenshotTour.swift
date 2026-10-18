@@ -190,6 +190,37 @@ final class ScreenshotTour: XCTestCase {
         save("10-return")
     }
 
+    /// Listens without touching the screen, saving a frame every 0.7 s, to check the word highlight keeps up on its own.
+    func testWordHighlightTour() throws {
+        guard let output = ProcessInfo.processInfo.environment["MB_TOUR_OUTPUT"] else { throw XCTSkip("Set MB_TOUR_OUTPUT to run.") }
+        let outputURL = URL(filePath: output)
+        try FileManager.default.createDirectory(at: outputURL, withIntermediateDirectories: true)
+        let app = XCUIApplication()
+        app.launchArguments = ["-ui-testing", "-seed-sample-book"]
+        app.launch()
+        app.tabBars.buttons["Library"].tap()
+        let book = app.buttons["book.The Sample Voyage"]
+        XCTAssertTrue(book.waitForExistence(timeout: 15))
+        book.tap()
+        sleep(2)
+        app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+        if ProcessInfo.processInfo.environment["MB_TOUR_SCROLL"] != nil {
+            app.buttons["reader.menu"].tap()
+            app.buttons["reader.menu.themes"].tap()
+            app.buttons["themes.pageTurn"].tap()
+            app.buttons["Scroll"].firstMatch.tap()
+            app.buttons["Done"].firstMatch.tap()
+            sleep(1)
+            if !app.buttons["reader.listen"].exists { app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap() }
+        }
+        app.buttons["reader.listen"].tap()
+        sleep(2)
+        for frame in 0..<10 {
+            try XCUIScreen.main.screenshot().pngRepresentation.write(to: outputURL.appending(path: "w-\(frame).png"))
+            usleep(700_000)
+        }
+    }
+
     /// Starts listening to real books (with covers, front matter, and notes) and checks the app keeps running.
     /// Needs `MB_LISTEN_DIR`, a folder of `.epub` files.
     func testListenToImportedBooks() throws {

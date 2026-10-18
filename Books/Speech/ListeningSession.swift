@@ -11,7 +11,9 @@ struct SpeechMark: Decodable, Equatable {
     /// Where a sentence running onto the next page crosses over, as a text offset.
     var breakOffset: Int?
     var currentPage: Int?
-    /// Scroll mode: whether the sentence is on screen, and where to scroll to show it.
+    /// The page the word being spoken is on, when a word was marked.
+    var wordPage: Int?
+    /// Scroll mode: whether the sentence (or the word, when one was marked) is on screen, and where to scroll to show it.
     var visible: Bool?
     var y: Double?
 }
@@ -81,7 +83,6 @@ final class ListeningSession {
     /// Set when the voice or position changed while paused; the next resume starts from `index` afresh.
     private var needsRestart = false
     private var pageTurnTask: Task<Void, Never>?
-    private var pendingBreak: (offset: Int, page: Int)?
     private var observers: [NSObjectProtocol] = []
     private var commandTargets: [(MPRemoteCommand, Any)] = []
     private var startedAt = Date()
@@ -313,7 +314,6 @@ final class ListeningSession {
         guard isActive, state != .loading else { return }
         isFollowing = false
         pageTurnTask?.cancel()
-        pendingBreak = nil
     }
 
     // MARK: - Following along
@@ -321,7 +321,6 @@ final class ListeningSession {
 
     private func follow(_ utterance: SpeechUtterance, duration: TimeInterval?) {
         pageTurnTask?.cancel()
-        pendingBreak = nil
         guard preferences.followsAlong, let reader else { return }
         guard let start = utterance.start, let end = utterance.end else {
             if isFollowing {
@@ -352,9 +351,8 @@ final class ListeningSession {
                 try? await Task.sleep(for: .seconds(duration * fraction))
                 guard !Task.isCancelled, isFollowing, state == .playing else { return }
                 reader.showSpeechPage(endPage)
-            } else {
-                pendingBreak = (breakOffset, endPage)
             }
+            // Otherwise the words turn the page as they reach it.
         }
     }
 
@@ -470,14 +468,18 @@ extension ListeningSession: SpeechBackendDelegate {
               let wordStart = utterance.sourceOffset(forSpoken: range.location),
               let wordEnd = utterance.sourceOffset(forSpoken: range.location + range.length)
         else { return }
-        let reader = reader
         Task {
-            _ = await reader?.markSpeech(spineIndex: utterance.spineIndex, start: start, end: end,
-                                         word: wordStart..<max(wordStart, wordEnd), reveal: false)
-        }
-        if let pending = pendingBreak, wordStart >= pending.offset, isFollowing {
-            pendingBreak = nil
-            reader?.showSpeechPage(pending.page)
+            guard let reader,
+                  let mark = await reader.markSpeech(spineIndex: utterance.spineIndex, start: start, end: end,
+                                                     word: wordStart..<max(wordStart, wordEnd), reveal: false),
+                  isFollowing, state == .playing
+            else { return }
+            // Keep the word being spoken on screen.
+            if mark.visible == false, let y = mark.y {
+                reader.scrollSpeech(to: y)
+            } else if let page = mark.wordPage, page != mark.currentPage {
+                reader.showSpeechPage(page)
+            }
         }
     }
 

@@ -67,6 +67,8 @@ final class ReaderViewController: UIViewController {
     private var hasSelection = false
     /// Set while listening turns the page, so the turn isn't taken for the reader browsing.
     private var isSpeechNavigation = false
+    /// Orders read-aloud marks, so `reader.js` can drop any that arrive after a newer one.
+    private var speechSequence = 0
 
     init(model: ReaderModel) {
         self.model = model
@@ -1004,6 +1006,9 @@ extension ReaderViewController: SpeechFollowing {
     }
 
     func markSpeech(spineIndex: Int, start: Int, end: Int, word: Range<Int>?, reveal: Bool) async -> SpeechMark? {
+        // Numbered in the order they're asked for: one that waits for a chapter to load mustn't land after a newer one.
+        speechSequence += 1
+        let sequence = speechSequence
         if current.document != .reflowable(spineIndex) {
             guard reveal, publication.spine.indices.contains(spineIndex) else {
                 clearSpeech()
@@ -1023,14 +1028,15 @@ extension ReaderViewController: SpeechFollowing {
             guard current.document == document, current.isSettled else { return nil }
         }
         guard current.isReady else { return nil }
-        var arguments: [String: Any] = ["start": start, "end": end]
+        guard sequence == speechSequence else { return nil }
+        var arguments: [String: Any] = ["start": start, "end": end, "sequence": sequence]
         if let word {
             arguments["wordStart"] = word.lowerBound
             arguments["wordEnd"] = word.upperBound
         }
         let script = word == nil
-            ? "return JSON.stringify(MB.speechMark(start, end))"
-            : "return JSON.stringify(MB.speechMark(start, end, wordStart, wordEnd))"
+            ? "return JSON.stringify(MB.speechMark(start, end, undefined, undefined, sequence))"
+            : "return JSON.stringify(MB.speechMark(start, end, wordStart, wordEnd, sequence))"
         guard let json = try? await call(script, arguments) as? String, let data = json.data(using: .utf8) else { return nil }
         return try? JSONDecoder().decode(SpeechMark.self, from: data)
     }
@@ -1072,8 +1078,10 @@ extension ReaderViewController: SpeechFollowing {
     }
 
     func clearSpeech() {
+        speechSequence += 1
+        let sequence = speechSequence
         for chapter in chapters where chapter.isReady {
-            Task { _ = try? await call("MB.speechClear()", in: chapter) }
+            Task { _ = try? await call("MB.speechClear(sequence)", ["sequence": sequence], in: chapter) }
         }
     }
 }

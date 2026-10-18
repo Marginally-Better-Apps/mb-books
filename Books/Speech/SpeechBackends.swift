@@ -235,6 +235,7 @@ final class NeuralSpeechBackend: SpeechBackend {
     private var timelineEnd: AVAudioFramePosition = 0
     private var reported: (index: Int, word: Int?)?
     private var tracking: Task<Void, Never>?
+    private var configurationObserver: NSObjectProtocol?
 
     init(voice: NeuralVoiceCatalog.Voice, directory: URL, voiceURL: URL) {
         self.voice = voice
@@ -247,6 +248,25 @@ final class NeuralSpeechBackend: SpeechBackend {
             engine.connect(timePitch, to: engine.mainMixerNode, format: format)
         }
         NeuralSpeechService.shared.prewarm(directory: directory)
+        // Headphones connecting or disconnecting stop the engine; pick up again at the sentence being read.
+        configurationObserver = NotificationCenter.default.addObserver(
+            forName: .AVAudioEngineConfigurationChange, object: engine, queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated { self?.engineWasReconfigured() }
+        }
+    }
+
+    isolated deinit {
+        if let configurationObserver { NotificationCenter.default.removeObserver(configurationObserver) }
+        tracking?.cancel()
+    }
+
+    private func engineWasReconfigured() {
+        guard !utterances.isEmpty else { return }
+        let index = reported?.index ?? nextToSchedule
+        let wasPaused = isPaused
+        play(utterances, from: min(index, utterances.count - 1))
+        if wasPaused { pause() }
     }
 
     func play(_ utterances: [SpeechUtterance], from index: Int) {
