@@ -67,7 +67,8 @@
 
     // Footnotes open in a popover, so their asides stay out of the reading flow, as in Apple Books.
     rules.push(`@namespace epub "${OPS}";`);
-    rules.push('aside:is([epub|type~="footnote"],[epub|type~="endnote"],[epub|type~="rearnote"]){display:none !important;}');
+    rules.push('aside:is([epub|type~="footnote"],[epub|type~="endnote"],[epub|type~="rearnote"],' +
+      '[epub\\:type~="footnote"],[epub\\:type~="endnote"],[epub\\:type~="rearnote"]){display:none !important;}');
     rules.push(`:root{--mb-bg:${colors.background};--mb-text:${colors.text};--mb-link:${colors.link};}`);
     rules.push(`html{-webkit-text-size-adjust:${Math.round((c.fontScale || 1) * 100)}% !important;` +
       'margin:0 !important;background-color:var(--mb-bg) !important;-webkit-tap-highlight-color:transparent;}');
@@ -804,7 +805,9 @@
     if (!url.hash || url.href.split('#')[0] !== document.URL.split('#')[0]) return null;
     const target = document.getElementById(decodeURIComponent(url.hash.slice(1)));
     if (!target) return null;
-    const types = (element) => ((element && element.getAttributeNS && element.getAttributeNS(OPS, 'type')) || '').split(/\s+/);
+    // XHTML saved as .html is parsed as HTML, where `epub:type` is a plain attribute name.
+    const types = (element) => ((element && element.getAttributeNS &&
+      (element.getAttributeNS(OPS, 'type') || element.getAttribute('epub:type'))) || '').split(/\s+/);
     const isNoteRef = types(link).includes('noteref');
     const container = target.closest('aside, li, dd, section, p, div') || target;
     const isNote = ['footnote', 'endnote', 'rearnote', 'note'].some((t) => types(target).includes(t) || types(container).includes(t));

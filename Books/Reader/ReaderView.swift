@@ -36,7 +36,11 @@ struct ReaderView: View {
         guard model == nil else { return }
         let container = library.storage.container(for: book.id)
         let result = await Task.detached(priority: .userInitiated) {
-            Result(catching: { try EPUBParser.parse(container) })
+            Result(catching: {
+                let publication = try EPUBParser.parse(container)
+                ContentNormalizer.normalizeIfNeeded(publication, in: container.root)
+                return publication
+            })
         }.value
         switch result {
         case .success(let publication):

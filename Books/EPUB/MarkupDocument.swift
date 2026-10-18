@@ -248,3 +248,91 @@ nonisolated enum HTMLEntities {
         return Data((result as String).utf8)
     }
 }
+
+/// WebKit picks a file's MIME type from its extension, so XHTML saved as `.html` is parsed as HTML.
+/// The HTML parser ignores the slash in `<script src="a.js"/>` or `<a id="x"/>`, leaving the element
+/// open: a script or title swallows the rest of the file, and an anchor swallows its paragraph.
+/// Writing those elements as `<a id="x"></a>` means the same thing to both parsers.
+nonisolated enum SelfClosingTags {
+    /// HTML void elements, where `<br/>` is correct and `<br></br>` would make two line breaks.
+    static let voidElements: Set<String> = [
+        "area", "base", "br", "col", "embed", "frame", "hr", "img", "input", "keygen", "link", "meta",
+        "param", "source", "track", "wbr",
+    ]
+
+    /// Whether WebKit parses a file at `path` as HTML rather than XML.
+    static func loadsAsHTML(_ path: String) -> Bool {
+        !["xhtml", "xht", "xml", "svg"].contains((path as NSString).pathExtension.lowercased())
+    }
+
+    static func expanded(_ data: Data) -> Data {
+        let bytes = [UInt8](data)
+        var output = [UInt8]()
+        output.reserveCapacity(bytes.count + bytes.count / 20)
+        var copied = 0
+        var index = 0
+
+        func starts(_ prefix: some Collection<UInt8>, at position: Int) -> Bool {
+            guard position + prefix.count <= bytes.count else { return false }
+            return bytes[position..<position + prefix.count].elementsEqual(prefix)
+        }
+        func skip(past terminator: String.UTF8View, from position: Int) -> Int {
+            var position = position
+            while position < bytes.count, !starts(terminator, at: position) { position += 1 }
+            return min(position + terminator.count, bytes.count)
+        }
+        func isNameByte(_ byte: UInt8) -> Bool {
+            switch byte {
+            case UInt8(ascii: "a")...UInt8(ascii: "z"), UInt8(ascii: "A")...UInt8(ascii: "Z"),
+                 UInt8(ascii: "0")...UInt8(ascii: "9"), UInt8(ascii: ":"), UInt8(ascii: "-"), UInt8(ascii: "_"),
+                 UInt8(ascii: "."), 0x80...0xFF:
+                return true
+            default:
+                return false
+            }
+        }
+
+        while index < bytes.count {
+            guard bytes[index] == UInt8(ascii: "<"), index + 1 < bytes.count else { index += 1; continue }
+            if starts("<!--".utf8, at: index) { index = skip(past: "-->".utf8, from: index + 4); continue }
+            if starts("<![CDATA[".utf8, at: index) { index = skip(past: "]]>".utf8, from: index + 9); continue }
+            if starts("<?".utf8, at: index) { index = skip(past: "?>".utf8, from: index + 2); continue }
+            let first = bytes[index + 1]
+            guard first != UInt8(ascii: "/"), first != UInt8(ascii: "!"), isNameByte(first) else { index += 1; continue }
+
+            var end = index + 1
+            while end < bytes.count, isNameByte(bytes[end]) { end += 1 }
+            let name = String(decoding: bytes[(index + 1)..<end], as: UTF8.self)
+            // Find the tag's closing `>`, skipping quoted attribute values.
+            var quote: UInt8?
+            while end < bytes.count {
+                let byte = bytes[end]
+                if let open = quote {
+                    if byte == open { quote = nil }
+                } else if byte == UInt8(ascii: "\"") || byte == UInt8(ascii: "'") {
+                    quote = byte
+                } else if byte == UInt8(ascii: ">") {
+                    break
+                }
+                end += 1
+            }
+            guard end < bytes.count else { break }
+            let selfClosing = bytes[end - 1] == UInt8(ascii: "/")
+            if selfClosing, !voidElements.contains(name.lowercased()) {
+                output.append(contentsOf: bytes[copied..<(end - 1)])
+                output.append(contentsOf: Array("></\(name)>".utf8))
+                copied = end + 1
+            }
+            index = end + 1
+            // Script and style contents aren't markup.
+            let local = name.lowercased()
+            if !selfClosing, local == "script" || local == "style" {
+                let closing = Array("</\(name)".utf8)
+                while index < bytes.count, !starts(closing, at: index) { index += 1 }
+            }
+        }
+        guard copied > 0 else { return data }
+        output.append(contentsOf: bytes[copied...])
+        return Data(output)
+    }
+}

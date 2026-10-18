@@ -78,6 +78,61 @@ final class BookImporterTests: XCTestCase {
         XCTAssertTrue(chapter.contains("&#160;"))
     }
 
+    func testExpandsSelfClosingTagsInXHTMLSavedAsHTML() throws {
+        // Kobo-style books ship XHTML as `.html` with `<script/>` in the head, which WebKit's HTML
+        // parser leaves open, swallowing the whole chapter.
+        let chapter = Fixtures.xhtml(#"<p><a id="i1"/>Text<br/></p>"#)
+            .replacingOccurrences(of: "</title></head>", with: #"</title><script src="../js/kobo.js"/></head>"#)
+        let package = Fixtures.package(
+            metadata: "<dc:title>Kobo</dc:title>",
+            manifest: """
+                <item id="c1" href="c1.html" media-type="application/xhtml+xml"/>
+                <item id="c2" href="c2.xhtml" media-type="application/xhtml+xml"/>
+                """,
+            spine: #"<itemref idref="c1"/><itemref idref="c2"/>"#)
+        let epub = try Fixtures.epub(package: package, files: ["c1.html": chapter, "c2.xhtml": chapter])
+        let storage = BookStorage(root: try Fixtures.temporaryDirectory())
+        let imported = try BookImporter(storage: storage).importBook(from: Fixtures.write(epub))
+        let content = storage.container(for: imported.id)
+
+        let html = try String(contentsOf: content.url(for: "OEBPS/c1.html"), encoding: .utf8)
+        XCTAssertTrue(html.contains(#"<script src="../js/kobo.js"></script>"#))
+        XCTAssertTrue(html.contains(#"<a id="i1"></a>Text<br/>"#), "Void elements stay self-closing")
+        XCTAssertNoThrow(try MarkupParser.parse(Data(html.utf8)), "The rewrite is still well-formed XML")
+        let xhtml = try String(contentsOf: content.url(for: "OEBPS/c2.xhtml"), encoding: .utf8)
+        XCTAssertEqual(xhtml, chapter, ".xhtml files are parsed as XML, so they're left alone")
+    }
+
+    func testSelfClosingTagExpansionSkipsCommentsScriptsAndQuotedValues() {
+        let source = #"<p title="a/>b"/><!-- <c/> --><script>if (a <b/>) {}</script><svg:rect x='1'/>"#
+        let expanded = String(decoding: SelfClosingTags.expanded(Data(source.utf8)), as: UTF8.self)
+        XCTAssertEqual(expanded, #"<p title="a/>b"></p><!-- <c/> --><script>if (a <b/>) {}</script><svg:rect x='1'></svg:rect>"#)
+        XCTAssertEqual(SelfClosingTags.expanded(Data(expanded.utf8)), Data(expanded.utf8), "Expansion is idempotent")
+    }
+
+    func testOpeningRepairsBooksImportedByOlderBuilds() throws {
+        let package = Fixtures.package(
+            metadata: "<dc:title>Old</dc:title>",
+            manifest: #"<item id="c1" href="c1.htm" media-type="application/xhtml+xml"/>"#,
+            spine: #"<itemref idref="c1"/>"#)
+        let folder = try Fixtures.temporaryDirectory()
+        try ZipArchive(url: Fixtures.write(try Fixtures.epub(
+            package: package, files: ["c1.htm": Fixtures.xhtml("<p>&nbsp;<span/></p>")]))).extractAll(to: folder)
+        let container = DirectoryContainer(root: folder)
+        let publication = try EPUBParser.parse(container)
+
+        ContentNormalizer.normalizeIfNeeded(publication, in: folder)
+        let chapter = try String(contentsOf: container.url(for: "OEBPS/c1.htm"), encoding: .utf8)
+        XCTAssertTrue(chapter.contains("<p>&#160;<span></span></p>"))
+        XCTAssertEqual(try String(contentsOf: folder.appending(path: ContentNormalizer.markerName), encoding: .utf8),
+                       String(ContentNormalizer.version))
+
+        try Data(Fixtures.xhtml("<p>&nbsp;</p>").utf8).write(to: container.url(for: "OEBPS/c1.htm"))
+        ContentNormalizer.normalizeIfNeeded(publication, in: folder)
+        XCTAssertTrue(try String(contentsOf: container.url(for: "OEBPS/c1.htm"), encoding: .utf8).contains("&nbsp;"),
+                      "Books already at the current version aren't rewritten again")
+    }
+
     @MainActor
     func testLibraryStoreDeduplicatesAndDeletesBooks() async throws {
         let container = try ModelContainer(

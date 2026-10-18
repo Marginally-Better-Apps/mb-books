@@ -65,7 +65,7 @@ nonisolated struct BookImporter: Sendable {
                 fileSize = Int64((try? original.resourceValues(forKeys: [.fileSizeKey]))?.fileSize ?? 0)
             }
             try deobfuscateFonts(publication, in: content)
-            normalizeEntities(publication, in: content)
+            ContentNormalizer.normalize(publication, in: content)
             if let coverPath = publication.coverPath {
                 writeCover(from: DirectoryContainer(root: content).url(for: coverPath), to: storage.coverFile(for: id))
             }
@@ -86,18 +86,6 @@ nonisolated struct BookImporter: Sendable {
             let url = container.url(for: path)
             let data = try Data(contentsOf: url)
             try FontDeobfuscator.deobfuscate(data, algorithm: algorithm, identifier: identifier).write(to: url)
-        }
-    }
-
-    /// Rewrites HTML named entities (`&nbsp;`) as numeric references. They are common in real-world
-    /// books but not defined in XHTML, so WebKit's XML parser would otherwise reject the chapter.
-    private func normalizeEntities(_ publication: Publication, in content: URL) {
-        let container = DirectoryContainer(root: content)
-        for item in publication.manifest where item.mediaType == "application/xhtml+xml" && item.remoteURL == nil {
-            let url = container.url(for: item.path)
-            guard let data = try? Data(contentsOf: url) else { continue }
-            let normalized = HTMLEntities.numericized(data)
-            if normalized != data { try? normalized.write(to: url, options: .atomic) }
         }
     }
 
@@ -123,5 +111,34 @@ nonisolated struct BookImporter: Sendable {
             total += Int64((try? file.resourceValues(forKeys: [.fileSizeKey]))?.fileSize ?? 0)
         }
         return total
+    }
+}
+
+/// Rewrites content documents so WebKit can load them. Runs on import, and once more when a book
+/// imported by an older build is opened, so books that loaded badly before are repaired.
+nonisolated enum ContentNormalizer {
+    /// Bump when `normalize` learns a new rewrite.
+    static let version = 2
+    static let markerName = ".mb-normalized"
+
+    static func normalizeIfNeeded(_ publication: Publication, in content: URL) {
+        let marker = content.appending(path: markerName)
+        if let text = try? String(contentsOf: marker, encoding: .utf8), Int(text) ?? 0 >= version { return }
+        normalize(publication, in: content)
+    }
+
+    static func normalize(_ publication: Publication, in content: URL) {
+        let container = DirectoryContainer(root: content)
+        for item in publication.manifest where item.isXHTML && item.remoteURL == nil {
+            let url = container.url(for: item.path)
+            guard let data = try? Data(contentsOf: url) else { continue }
+            var normalized = data
+            // Named HTML entities (`&nbsp;`) are common in real-world books but not defined in XHTML,
+            // so WebKit's XML parser would otherwise reject the chapter.
+            if item.mediaType == "application/xhtml+xml" { normalized = HTMLEntities.numericized(normalized) }
+            if SelfClosingTags.loadsAsHTML(item.path) { normalized = SelfClosingTags.expanded(normalized) }
+            if normalized != data { try? normalized.write(to: url, options: .atomic) }
+        }
+        try? Data(String(version).utf8).write(to: content.appending(path: markerName), options: .atomic)
     }
 }
