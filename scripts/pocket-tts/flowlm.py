@@ -6,7 +6,8 @@ Two functions share one KV cache state and one copy of the weights:
   and returns the BOS latent that starts generation. Shorter text is padded; the padding lands past the real
   tokens, and generation overwrites it.
 - `generate(latent, noise, position)`: one audio frame. Runs the previous latent (or the BOS latent) through the
-  transformer, then the flow head's single LSD step, returning the next latent and the end-of-speech logit.
+  transformer, then the flow head's single LSD step, returning the next latent, the end-of-speech logit, and
+  `alignment`: where in the cache a few attention heads look, which follows the text as it's spoken.
 
 Every input has a fixed shape, so Core ML plans each function once rather than per call. (Flexible shapes
 re-planned every frame on the GPU, and enumerated ones computed wrong results on the CPU.) Voices are
@@ -26,6 +27,9 @@ HEAD_DIM = 64
 PREFILL = 64
 D_MODEL = 1024
 LATENT = 32
+# (layer, head) pairs whose attention follows the text as it's spoken. Averaged, they place word onsets within
+# about 40 ms of Whisper's timestamps on voices and sentences they weren't chosen from.
+ALIGNMENT_HEADS = [(3, 8), (5, 9), (2, 0)]
 
 
 def rope_tables(length: int, max_period: float) -> tuple[torch.Tensor, torch.Tensor]:
@@ -55,8 +59,9 @@ class StatefulFlowLM(nn.Module):
         self.register_buffer("k_cache", torch.zeros(shape, dtype=torch.float16))
         self.register_buffer("v_cache", torch.zeros(shape, dtype=torch.float16))
 
-    def transformer(self, x: torch.Tensor, position: torch.Tensor, t: int) -> torch.Tensor:
-        """Runs `x` ([1, t, D_MODEL]) at cache positions `position` ..< `position` + t."""
+    def transformer(self, x: torch.Tensor, position: torch.Tensor, t: int, aligns: bool) -> tuple[torch.Tensor, torch.Tensor]:
+        """Runs `x` ([1, t, D_MODEL]) at cache positions `position` ..< `position` + t. With `aligns`, also returns
+        the alignment heads' attention over the cache, [1, t, L]."""
         length = self.length
         # Positions become one-hot rows, and every read and write of the cache and the rotary tables is a matrix
         # product with them, so no shape depends on the position.
@@ -68,6 +73,7 @@ class StatefulFlowLM(nn.Module):
         cos = torch.matmul(one_hot, self.rope_cos).view(t, 1, HEAD_DIM // 2)
         sin = torch.matmul(one_hot, self.rope_sin).view(t, 1, HEAD_DIM // 2)
         scatter = one_hot.transpose(0, 1)  # [L, t]
+        alignment = torch.zeros(1, t, length)
         for index, layer in enumerate(self.flow_lm.transformer.layers):
             attn = layer.self_attn
             h = layer.norm1(x)
@@ -80,10 +86,14 @@ class StatefulFlowLM(nn.Module):
             self.k_cache[index : index + 1] = keys.to(torch.float16).unsqueeze(0)
             self.v_cache[index : index + 1] = values.to(torch.float16).unsqueeze(0)
             out = F.scaled_dot_product_attention(q, keys, values, attn_mask=mask)
+            for head in [h for l, h in ALIGNMENT_HEADS if l == index and aligns]:
+                # Scaled before the product, which can overflow fp16 otherwise.
+                scores = torch.matmul(q[:, head] / math.sqrt(HEAD_DIM), keys[:, head].transpose(-1, -2)) + mask[:, 0]
+                alignment = alignment + torch.softmax(scores, dim=-1) / len(ALIGNMENT_HEADS)
             out = attn.out_proj(out.transpose(1, 2).reshape(1, t, D_MODEL))
             x = x + layer.layer_scale_1(out)
             x = layer._ff_block(x)
-        return self.flow_lm.out_norm(x)
+        return self.flow_lm.out_norm(x), alignment
 
 
 class Prefill(nn.Module):
@@ -96,7 +106,7 @@ class Prefill(nn.Module):
 
     def forward(self, token_ids: torch.Tensor, position: torch.Tensor) -> torch.Tensor:
         embeddings = self.core.flow_lm.conditioner.embed(token_ids)
-        out = self.core.transformer(embeddings, position, PREFILL)
+        out, _ = self.core.transformer(embeddings, position, PREFILL, aligns=False)
         # The BOS latent that starts generation, tied to the graph so it isn't folded into a bare constant.
         return self.core.flow_lm.bos_emb.view(1, 1, LATENT) + 0 * out[:, -1:, :1]
 
@@ -112,10 +122,11 @@ class Generate(nn.Module):
     def forward(self, latent: torch.Tensor, noise: torch.Tensor, position: torch.Tensor):
         flow_lm = self.core.flow_lm
         x = flow_lm.input_linear(latent)
-        hidden = self.core.transformer(x, position, 1)[:, -1]
+        out, alignment = self.core.transformer(x, position, 1, aligns=True)
+        hidden = out[:, -1]
         eos_logit = flow_lm.out_eos(hidden)
         # One LSD step from s=0 to t=1, as the released model is sampled.
         s = torch.zeros_like(noise[..., :1])
         t = torch.ones_like(noise[..., :1])
         next_latent = noise + flow_lm.flow_net(hidden, s, t, noise)
-        return next_latent, eos_logit
+        return next_latent, eos_logit, alignment[:, -1]

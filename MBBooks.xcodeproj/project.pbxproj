@@ -52,6 +52,7 @@
 		90F698ABBAFF27319FA7C174 /* preview-paul.m4a in Resources */ = {isa = PBXBuildFile; fileRef = 3EC20C12BE53713F92F085AF /* preview-paul.m4a */; };
 		9210703B8BBD3C9073ACAFC5 /* SampleBook.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0F40EF084472055A79876338 /* SampleBook.swift */; };
 		9492ECEEDD082E0D006F3FE9 /* FixedLayout.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5FC2E41709670A4D0BE95766 /* FixedLayout.swift */; };
+		95F4F73348BDB08CE02504AD /* SpeechWords.swift in Sources */ = {isa = PBXBuildFile; fileRef = DCD92CD5C3560591540EF199 /* SpeechWords.swift */; };
 		96C7A982F2DD496A69FC9DFA /* SpeechScript.swift in Sources */ = {isa = PBXBuildFile; fileRef = 405AE4B09697903F6FBFBA94 /* SpeechScript.swift */; };
 		9B7B6020FB913B008C836C19 /* SpeechText.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8CB84892B653A85A6FC69463 /* SpeechText.swift */; };
 		9BCE2B01443D6531B9989B8A /* SearchView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CD5126EC53EEE06B4E167961 /* SearchView.swift */; };
@@ -183,6 +184,7 @@
 		CF1744CFD9EDAC850F87E067 /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
 		D6A886F2143CB8B96FC9A399 /* MBBooksTests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = MBBooksTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		DCA448853F4586378A44C104 /* MBBooksApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MBBooksApp.swift; sourceTree = "<group>"; };
+		DCD92CD5C3560591540EF199 /* SpeechWords.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpeechWords.swift; sourceTree = "<group>"; };
 		DCDB01AC22F9FCC6AB2A1BED /* ContentsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentsView.swift; sourceTree = "<group>"; };
 		DD882BFC7EDCC917BB72F6B6 /* ThemesView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ThemesView.swift; sourceTree = "<group>"; };
 		DE70B93B570883D14F7042E1 /* preview-fantine.m4a */ = {isa = PBXFileReference; path = "preview-fantine.m4a"; sourceTree = "<group>"; };
@@ -243,6 +245,7 @@
 				405AE4B09697903F6FBFBA94 /* SpeechScript.swift */,
 				B2969D405A16A54C45C3E678 /* SpeechScriptProvider.swift */,
 				8CB84892B653A85A6FC69463 /* SpeechText.swift */,
+				DCD92CD5C3560591540EF199 /* SpeechWords.swift */,
 				74B3868F66F53D1E500AA18A /* VoicePreview.swift */,
 				60ECAC9E2ADA23AAE7B420FB /* Neural */,
 			);
@@ -612,6 +615,7 @@
 				96C7A982F2DD496A69FC9DFA /* SpeechScript.swift in Sources */,
 				3E89EB15216C4F06FBFDA46F /* SpeechScriptProvider.swift in Sources */,
 				9B7B6020FB913B008C836C19 /* SpeechText.swift in Sources */,
+				95F4F73348BDB08CE02504AD /* SpeechWords.swift in Sources */,
 				EF95B0FBFD575F9044446E50 /* SpokenEnglish.swift in Sources */,
 				34372BF1B57F67BEE0923C47 /* ThemesView.swift in Sources */,
 				F1C9401444A53854B315AD9A /* VoicePreview.swift in Sources */,

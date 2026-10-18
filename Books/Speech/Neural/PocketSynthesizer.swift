@@ -85,20 +85,30 @@ nonisolated final class PocketSynthesizer: @unchecked Sendable {
         voices[id] != nil
     }
 
+    /// Rendered speech, and when each word the model read begins.
+    struct Speech: Sendable {
+        var samples: [Float] = []
+        /// The words as the model read them (numbers written out), in order, with their start in seconds.
+        var words: [(text: String, time: TimeInterval)] = []
+    }
+
     /// Synthesizes `text` as 24 kHz mono samples. `isCancelled` is checked between frames.
-    func synthesize(_ text: String, voice id: String, isCancelled: () -> Bool = { false }) throws -> [Float] {
+    func synthesize(_ text: String, voice id: String, isCancelled: () -> Bool = { false }) throws -> Speech {
         guard let voice = voices[id] else { throw PocketError.voiceNotLoaded(id) }
         if loadedVoice != id {
             try write(voice)
             loadedVoice = id
         }
         let spoken = PocketText.clean(SpokenEnglish.normalize(text), tokenizer: tokenizer)
-        var samples: [Float] = []
+        var speech = Speech()
         for chunk in PocketText.chunks(spoken, tokenizer: tokenizer) {
             guard !isCancelled() else { throw CancellationError() }
-            samples += try synthesizeChunk(chunk, voiceLength: voice.length, isCancelled: isCancelled)
+            let start = Double(speech.samples.count) / Self.sampleRate
+            let rendered = try synthesizeChunk(chunk, voiceLength: voice.length, isCancelled: isCancelled)
+            speech.samples += rendered.samples
+            speech.words += rendered.words.map { ($0.text, start + $0.time) }
         }
-        return samples
+        return speech
     }
 
     // MARK: - FlowLM
@@ -134,10 +144,11 @@ nonisolated final class PocketSynthesizer: @unchecked Sendable {
         }
     }
 
-    private func synthesizeChunk(_ chunk: String, voiceLength: Int, isCancelled: () -> Bool) throws -> [Float] {
+    private func synthesizeChunk(_ chunk: String, voiceLength: Int, isCancelled: () -> Bool) throws -> Speech {
         let (text, framesAfterEnd) = PocketText.prepare(chunk)
-        let tokens = tokenizer.encode(text)
-        guard !tokens.isEmpty else { return [] }
+        let encoded = tokenizer.encodeWithOffsets(text)
+        let tokens = encoded.map(\.id)
+        guard !tokens.isEmpty else { return Speech() }
         var position = voiceLength
 
         // Text, a padded block at a time. Padding lands past the text and generation overwrites it.
@@ -165,6 +176,8 @@ nonisolated final class PocketSynthesizer: @unchecked Sendable {
         let decoder = try MimiStream(model: mimi, stateNames: mimiStateNames)
         var endFrame: Int?
         var failure: Error?
+        // For each frame decoded, the furthest text token the model has reached.
+        var reached: [Int] = []
         for frame in 0..<maximumFrames where position < Self.cacheLength {
             if isCancelled() {
                 failure = CancellationError()
@@ -180,6 +193,9 @@ nonisolated final class PocketSynthesizer: @unchecked Sendable {
                   let end = output.featureValue(for: "eos_logit")?.multiArrayValue else { throw PocketError.noOutput }
             if endFrame == nil, frame >= Self.minimumFramesBeforeEnd, end[0].floatValue > Self.endThreshold { endFrame = frame }
             if let endFrame, frame >= endFrame + framesAfterEnd { break }
+            if let alignment = output.featureValue(for: "alignment")?.multiArrayValue {
+                reached.append(max(reached.last ?? 0, Self.attendedToken(alignment, textStart: voiceLength, count: tokens.count)))
+            }
             // The next frame's input, and Mimi's: [1, 1, 32], where the output is [1, 32].
             latent = try MLMultiArray(shape: [1, 1, NSNumber(value: Self.latentSize)], dataType: .float32)
             latent.withUnsafeMutableBufferPointer(ofType: Float.self) { destination, _ in
@@ -190,7 +206,46 @@ nonisolated final class PocketSynthesizer: @unchecked Sendable {
         }
         decoding.sync {}
         if let failure { throw failure }
-        return try decoder.result()
+        let samples = try decoder.result()
+        // Without alignment, the sentence is highlighted as a whole.
+        var words = reached.isEmpty ? [] : Self.wordTimes(in: text, tokens: encoded, reached: reached)
+        // Attention settles on the first word during the silence before it, so that word starts when the sound does.
+        let onset = Self.onset(of: samples)
+        for index in words.indices { words[index].time = index == 0 ? onset : max(words[index].time, onset) }
+        return Speech(samples: samples, words: words)
+    }
+
+    /// When speech starts: the first 20 ms window louder than a tenth of the loudest one.
+    static func onset(of samples: [Float]) -> TimeInterval {
+        let window = Int(sampleRate / 50)
+        let levels = stride(from: 0, to: samples.count, by: window).map { start in
+            let slice = samples[start..<min(samples.count, start + window)]
+            return (slice.reduce(0) { $0 + $1 * $1 } / Float(slice.count)).squareRoot()
+        }
+        guard let loudest = levels.max(), loudest > 0 else { return 0 }
+        let first = levels.firstIndex { $0 > loudest / 10 } ?? 0
+        return Double(first * window) / sampleRate
+    }
+
+    /// The text token a few of the model's attention heads look at most, which follows the text as it's spoken.
+    private static func attendedToken(_ alignment: MLMultiArray, textStart: Int, count: Int) -> Int {
+        alignment.withUnsafeBufferPointer(ofType: Float.self) { weights in
+            var best = 0
+            for token in 0..<count where textStart + token < weights.count {
+                if weights[textStart + token] > weights[textStart + best] { best = token }
+            }
+            return best
+        }
+    }
+
+    /// When each word of `text` starts: the first frame by which the model has reached the token it begins in.
+    static func wordTimes(in text: String, tokens: [(id: Int, offset: Int)], reached: [Int]) -> [(text: String, time: TimeInterval)] {
+        let secondsPerFrame = Double(samplesPerFrame) / sampleRate
+        return SpeechWords.words(in: text).compactMap { word in
+            guard let token = tokens.lastIndex(where: { $0.offset <= word.scalarOffset }) else { return nil }
+            let frame = reached.firstIndex { $0 >= token } ?? reached.count
+            return (word.text, Double(frame) * secondsPerFrame)
+        }
     }
 
     /// Gaussian noise with variance `temperature`, the flow's starting point.

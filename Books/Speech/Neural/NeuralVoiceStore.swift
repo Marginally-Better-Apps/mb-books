@@ -239,8 +239,8 @@ nonisolated final class NeuralSpeechService: @unchecked Sendable {
         queue.addOperation { [self] in _ = try? loadedSynthesizer(directory: directory) }
     }
 
-    /// Synthesizes `text` as 24 kHz mono samples.
-    func synthesize(_ text: String, voice: NeuralVoiceCatalog.Voice, directory: URL, voiceURL: URL) async throws -> [Float] {
+    /// Synthesizes `text` as 24 kHz mono samples, with when each word starts.
+    func synthesize(_ text: String, voice: NeuralVoiceCatalog.Voice, directory: URL, voiceURL: URL) async throws -> PocketSynthesizer.Speech {
         let requested = currentGeneration
         return try await withCheckedThrowingContinuation { continuation in
             queue.addOperation { [self] in
@@ -256,8 +256,8 @@ nonisolated final class NeuralSpeechService: @unchecked Sendable {
                     } catch {
                         throw NeuralVoiceError.unusable(error.localizedDescription)
                     }
-                    let samples = try synthesizer.synthesize(text, voice: voice.id) { requested != self.currentGeneration }
-                    continuation.resume(returning: samples)
+                    let speech = try synthesizer.synthesize(text, voice: voice.id) { requested != self.currentGeneration }
+                    continuation.resume(returning: speech)
                 } catch {
                     continuation.resume(throwing: error)
                 }

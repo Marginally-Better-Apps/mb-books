@@ -19,8 +19,8 @@ Tap the headphones in the reader (or choose **Listen from Here** on a selection)
 
 One voice list holds two kinds of voices, each with a sample button:
 
-- **Natural voices** are Kyutai's [Pocket TTS](https://huggingface.co/kyutai/pocket-tts) (english_2026-09), run with Core ML a few sentences ahead of the listener: the transformer on the GPU, the audio decoder on the CPU, overlapping frame by frame. The 152 MB download (models and 17 voices) happens once; samples are bundled, so voices can be heard first. On an M2 it renders about 7× faster than real time. They read English books.
-- **Apple voices** (`AVSpeechSynthesizer`) need no download, read every language, and highlight word by word. Enhanced and Premium voices from Settings › Accessibility › Spoken Content appear when installed.
+- **Natural voices** are Kyutai's [Pocket TTS](https://huggingface.co/kyutai/pocket-tts) (english_2026-09), run with Core ML a few sentences ahead of the listener: the transformer on the GPU, the audio decoder on the CPU, overlapping frame by frame. A few of the model's attention heads follow the text as it's spoken, which times each word, so the highlight moves word by word with the voice (about 50 ms from Whisper's word timings). The 152 MB download (models and 17 voices) happens once; samples are bundled, so voices can be heard first. On an M2 it renders about 7× faster than real time. They read English books.
+- **Apple voices** (`AVSpeechSynthesizer`) need no download and read every language. Enhanced and Premium voices from Settings › Accessibility › Spoken Content appear when installed.
 
 Choosing a voice never starts playback: a playing book switches voices at the current sentence, and a paused one stays paused.
 

@@ -59,20 +59,29 @@ nonisolated struct PocketTokenizer: Sendable {
     }
 
     func encode(_ text: String) -> [Int] {
+        encodeWithOffsets(text).map(\.id)
+    }
+
+    /// Tokens, each with the offset in `text`, in Unicode scalars, of the first character it covers (past the space a
+    /// word-initial piece begins with).
+    func encodeWithOffsets(_ text: String) -> [(id: Int, offset: Int)] {
         guard !text.isEmpty else { return [] }
         // Normalizer: prepend "▁"; pre-tokenizer: spaces become "▁" and every "▁" starts a new word.
         let normalized = String(Self.space) + text.replacingOccurrences(of: " ", with: String(Self.space))
-        var tokens: [Int] = []
+        var tokens: [(id: Int, offset: Int)] = []
         var word: [Unicode.Scalar] = []
+        var wordStart = 0
         // Like the reference, this works on Unicode scalars, not grapheme clusters.
-        for scalar in normalized.unicodeScalars {
+        for (index, scalar) in normalized.unicodeScalars.enumerated() {
             if scalar == Self.space, !word.isEmpty {
-                encodeWord(word, into: &tokens)
+                // The prepended "▁" shifts every offset by one.
+                encodeWord(word, offset: wordStart - 1, into: &tokens)
                 word = []
+                wordStart = index
             }
             word.append(scalar)
         }
-        if !word.isEmpty { encodeWord(word, into: &tokens) }
+        if !word.isEmpty { encodeWord(word, offset: wordStart - 1, into: &tokens) }
         return tokens
     }
 
@@ -91,7 +100,7 @@ nonisolated struct PocketTokenizer: Sendable {
     }
 
     /// Viterbi search for the highest-scoring split of one word into pieces.
-    private func encodeWord(_ characters: [Unicode.Scalar], into tokens: inout [Int]) {
+    private func encodeWord(_ characters: [Unicode.Scalar], offset: Int, into tokens: inout [(id: Int, offset: Int)]) {
         let count = characters.count
         var best = [Float](repeating: -.infinity, count: count + 1)
         // For each end position: where the best piece ending there starts, and its ID (nil when unknown).
@@ -124,12 +133,17 @@ nonisolated struct PocketTokenizer: Sendable {
             path.append(back[end])
             end = back[end].start
         }
-        for step in path.reversed() {
+        let steps = Array(path.reversed())
+        for (index, step) in steps.enumerated() {
+            let end = index + 1 < steps.count ? steps[index + 1].start : count
+            // A piece like "▁na" starts at its first letter, not at the space before it.
+            let skipsSpace = characters[step.start] == Self.space && end - step.start > 1
+            let start = max(0, offset + step.start + (skipsSpace ? 1 : 0))
             if let id = step.id {
-                tokens.append(id)
+                tokens.append((id, start))
             } else {
                 // Byte fallback: an unknown character becomes its UTF-8 bytes.
-                tokens += String(characters[step.start]).utf8.map { byteIDs[Int($0)] }
+                tokens += String(characters[step.start]).utf8.map { (byteIDs[Int($0)], start) }
             }
         }
     }

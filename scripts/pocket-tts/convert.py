@@ -68,7 +68,11 @@ def convert_flowlm(model: TTSModel, out: Path, precision: str) -> None:
                 ct.TensorType(name="noise", shape=(1, LATENT), dtype=np.float32),
                 ct.TensorType(name="position", shape=(1,), dtype=np.int32),
             ],
-            outputs=[ct.TensorType(name="next_latent", dtype=np.float32), ct.TensorType(name="eos_logit", dtype=np.float32)],
+            outputs=[
+                ct.TensorType(name="next_latent", dtype=np.float32),
+                ct.TensorType(name="eos_logit", dtype=np.float32),
+                ct.TensorType(name="alignment", dtype=np.float32),
+            ],
             **common,
         ),
     }

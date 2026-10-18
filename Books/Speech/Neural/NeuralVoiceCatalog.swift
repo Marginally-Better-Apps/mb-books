@@ -42,16 +42,16 @@ nonisolated enum NeuralVoiceCatalog {
         }
     }
 
-    static let modelID = "pocket-tts-2026-09-v1"
+    static let modelID = "pocket-tts-2026-09-v2"
     /// Folders of earlier model downloads, removed to give the space back.
-    static let retiredModelIDs = ["kokoro-82m-v1.0", "kokoro-82m-v1.0-q8"]
+    static let retiredModelIDs = ["kokoro-82m-v1.0", "kokoro-82m-v1.0-q8", "pocket-tts-2026-09-v1"]
     // TODO: Move to a public host before release. The tailnet only reaches the developer's own devices.
-    static let repository = URL(string: "https://shloks-macbook-air.taildb44.ts.net:8443/pocket-tts/v1")!
+    static let repository = URL(string: "https://shloks-macbook-air.taildb44.ts.net:8443/pocket-tts/v2")!
 
     /// Core ML models, archived with Apple Archive: the transformer (8-bit weights) and the audio decoder.
     static let models = [
-        File(name: "FlowLM.mlmodelc.aar", url: repository.appending(path: "FlowLM.mlmodelc.aar"), size: 78_428_223,
-             sha256: "ee9fd76490e9ae2b0c5c78f52b08e7c3cacc988e8edded8cd9722ea1c9141bcc"),
+        File(name: "FlowLM.mlmodelc.aar", url: repository.appending(path: "FlowLM.mlmodelc.aar"), size: 78_425_264,
+             sha256: "439f66a2d9f4e6b7153e6c29a6caf5b67481353065d6cae7fd3ebcf10de421d3"),
         File(name: "Mimi.mlmodelc.aar", url: repository.appending(path: "Mimi.mlmodelc.aar"), size: 19_087_174,
              sha256: "4a256260f1140501e6a37380e2f4f6c4a0f831cc906f331c5a21e56dc5180bda"),
     ]

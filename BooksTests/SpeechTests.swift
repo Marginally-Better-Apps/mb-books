@@ -388,6 +388,51 @@ final class PocketTextTests: XCTestCase {
         XCTAssertEqual(SpokenEnglish.normalize("NASA and the FBI"), "NASA and the FBI")
     }
 
+    func testTokensKnowWhereTheyStart() {
+        let text = "Hi, naïve café 😀 friend."
+        let tokens = Self.tokenizer.encodeWithOffsets(text)
+        XCTAssertEqual(tokens.map(\.id), Self.tokenizer.encode(text))
+        XCTAssertEqual(tokens.map(\.offset), tokens.map(\.offset).sorted())
+        let scalars = Array(text.unicodeScalars)
+        // Each word's first token starts at the word.
+        for word in SpeechWords.words(in: text) {
+            XCTAssertTrue(tokens.contains { $0.offset == word.scalarOffset }, word.text)
+            XCTAssertEqual(String(scalars[word.scalarOffset]), String(word.text.unicodeScalars.first!))
+        }
+    }
+
+    func testFindsWords() {
+        let words = SpeechWords.words(in: "“Don’t,” she said—well-known café, 1984!")
+        XCTAssertEqual(words.map(\.text), ["Don’t", "she", "said", "well", "known", "café", "1984"])
+        let text = "“Don’t,” she said—well-known café, 1984!" as NSString
+        XCTAssertEqual(words.map { text.substring(with: $0.range) }, words.map(\.text))
+        XCTAssertEqual(SpeechWords.words(in: "😀 ok").first?.range, NSRange(location: 3, length: 2), "Ranges count UTF-16")
+    }
+
+    func testWordTimesFollowTheSpokenWords() {
+        let text = "In 1984, Hermione paid $45.50 — a lot."
+        let spoken: [(text: String, time: TimeInterval)] = [
+            ("In", 0), ("nineteen", 0.2), ("eighty", 0.5), ("four", 0.7), ("Hermione", 1.0), ("paid", 1.5),
+            ("forty", 1.8), ("five", 2.0), ("dollars", 2.2), ("and", 2.5), ("fifty", 2.6), ("cents", 2.9),
+            ("a", 3.2), ("lot", 3.3),
+        ]
+        let timings = SpeechWords.timings(for: text, spoken: spoken)
+        let source = text as NSString
+        let byWord = Dictionary(timings.map { (source.substring(with: $0.range), $0.time) }, uniquingKeysWith: { first, _ in first })
+        XCTAssertEqual(byWord["In"], 0)
+        XCTAssertEqual(byWord["1984"], 0.2, "A number starts with its first spoken word")
+        XCTAssertEqual(byWord["Hermione"], 1.0)
+        XCTAssertEqual(byWord["45"], 1.8)
+        XCTAssertEqual(byWord["lot"], 3.3)
+        XCTAssertEqual(timings.map(\.time), timings.map(\.time).sorted())
+        XCTAssertTrue(SpeechWords.timings(for: text, spoken: []).isEmpty)
+    }
+
+    func testWordTimesMatchAcrossTypography() {
+        let timings = SpeechWords.timings(for: "“Café,” she said.", spoken: [("Cafe", 0.1), ("she", 0.6), ("said", 0.9)])
+        XCTAssertEqual(timings.map(\.time), [0.1, 0.6, 0.9])
+    }
+
     func testNumberWords() {
         XCTAssertEqual(NumberWords.cardinal(0), "zero")
         XCTAssertEqual(NumberWords.cardinal(1_234_567), "one million two hundred thirty-four thousand five hundred sixty-seven")
@@ -501,7 +546,8 @@ final class PocketIntegrationTests: XCTestCase {
         let text = "“It was the best of times,” he said, “it was the worst of times.” Hermione paid $45.50 for the 21st edition in 1984."
         _ = try synthesizer.synthesize("Warming up.", voice: "george")
         let started = Date.now
-        let samples = try synthesizer.synthesize(text, voice: "george")
+        let speech = try synthesizer.synthesize(text, voice: "george")
+        let samples = speech.samples
         let elapsed = Date.now.timeIntervalSince(started)
         let seconds = Double(samples.count) / NeuralVoiceCatalog.sampleRate
         print("Pocket TTS rendered \(seconds) s of audio in \(elapsed) s (\(seconds / elapsed)× real time)")
@@ -509,6 +555,11 @@ final class PocketIntegrationTests: XCTestCase {
         XCTAssertLessThan(seconds, 25)
         XCTAssertGreaterThan(samples.map(abs).max() ?? 0, 0.05, "Not silent")
         XCTAssertThrowsError(try synthesizer.synthesize(text, voice: "george", isCancelled: { true }))
+        // Every word on the page gets a time, in order, within the audio.
+        let timings = SpeechWords.timings(for: text, spoken: speech.words)
+        XCTAssertEqual(timings.count, SpeechWords.words(in: text).count)
+        XCTAssertEqual(timings.map(\.time), timings.map(\.time).sorted())
+        XCTAssertLessThan(timings.last?.time ?? .infinity, seconds)
         // Save for listening or transcription.
         if let output = ProcessInfo.processInfo.environment["MB_VOICE_OUTPUT"] {
             let format = try XCTUnwrap(NeuralSpeechBackend.format)

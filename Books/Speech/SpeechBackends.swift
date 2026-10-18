@@ -192,7 +192,8 @@ enum SystemVoices {
 // MARK: - Natural voices
 
 /// Natural voices: Pocket TTS renders a few sentences ahead of the listener while they play through
-/// `AVAudioEngine`, so speed changes keep the voice's pitch.
+/// `AVAudioEngine`, so speed changes keep the voice's pitch. The model reports when each word starts, and the
+/// highlight follows the player's actual position, word by word.
 @MainActor
 final class NeuralSpeechBackend: SpeechBackend {
     nonisolated private static let logger = Logger(subsystem: "com.mbbooks.MBBooks", category: "NaturalVoice")
@@ -214,13 +215,26 @@ final class NeuralSpeechBackend: SpeechBackend {
     private var generation = 0
     private var nextToSchedule = 0
     private var scheduledAhead = 0
-    /// Rendered samples (nil for a sentence that's skipped), or a failure that stops listening.
-    private var rendering: [Int: Task<Result<[Float]?, NeuralVoiceError>, Never>] = [:]
+    /// Rendered speech (nil for a sentence that's skipped), or a failure that stops listening.
+    private var rendering: [Int: Task<Result<PocketSynthesizer.Speech?, NeuralVoiceError>, Never>] = [:]
     private var isPaused = false
     private var isWaiting = false
-    private var durations: [Int: TimeInterval] = [:]
     /// Sentences rendered ahead of the one playing.
     private let lookahead = 3
+
+    /// A sentence handed to the player: where it sits on the player's timeline, in samples, and where its words start.
+    private struct Scheduled {
+        let index: Int
+        let start: AVAudioFramePosition
+        let end: AVAudioFramePosition
+        let duration: TimeInterval
+        let words: [(range: NSRange, start: AVAudioFramePosition)]
+    }
+
+    private var timeline: [Scheduled] = []
+    private var timelineEnd: AVAudioFramePosition = 0
+    private var reported: (index: Int, word: Int?)?
+    private var tracking: Task<Void, Never>?
 
     init(voice: NeuralVoiceCatalog.Voice, directory: URL, voiceURL: URL) {
         self.voice = voice
@@ -247,6 +261,7 @@ final class NeuralSpeechBackend: SpeechBackend {
             return
         }
         player.play()
+        startTracking()
         fill()
     }
 
@@ -263,6 +278,8 @@ final class NeuralSpeechBackend: SpeechBackend {
 
     func stop() {
         stopPlayback()
+        tracking?.cancel()
+        tracking = nil
         engine.stop()
         utterances = []
     }
@@ -273,9 +290,12 @@ final class NeuralSpeechBackend: SpeechBackend {
         rendering = [:]
         // Sentences queued for the sentence that was playing are no longer needed.
         NeuralSpeechService.shared.cancelQueued()
+        // Stopping also rewinds the player's timeline to zero.
         player.stop()
         scheduledAhead = 0
-        durations = [:]
+        timeline = []
+        timelineEnd = 0
+        reported = nil
         setWaiting(false)
     }
 
@@ -288,7 +308,7 @@ final class NeuralSpeechBackend: SpeechBackend {
             let directory = directory
             let voiceURL = voiceURL
             rendering[index] = Task.detached(priority: .userInitiated) {
-                await Self.samples(for: text, voice: voice, directory: directory, voiceURL: voiceURL)
+                await Self.speech(for: text, voice: voice, directory: directory, voiceURL: voiceURL)
             }
         }
         guard scheduledAhead < 2, nextToSchedule < utterances.count, let task = rendering[nextToSchedule] else {
@@ -308,39 +328,84 @@ final class NeuralSpeechBackend: SpeechBackend {
                 return
             }
             nextToSchedule += 1
-            guard case .success(let samples) = result, let samples, !samples.isEmpty, let format = Self.format, let buffer = Self.buffer(samples, format: format) else {
+            guard case .success(let speech) = result, let speech, !speech.samples.isEmpty, let format = Self.format,
+                  let buffer = Self.buffer(speech.samples, format: format) else {
                 // A sentence that can't be rendered is skipped rather than stopping the book.
                 fill()
                 return
             }
-            schedule(buffer, index: index, generation: generation)
+            schedule(buffer, words: speech.words, index: index, generation: generation)
             fill()
         }
     }
 
-    private func schedule(_ buffer: AVAudioPCMBuffer, index: Int, generation: Int) {
+    private func schedule(_ buffer: AVAudioPCMBuffer, words: [(text: String, time: TimeInterval)], index: Int, generation: Int) {
         let padded = Self.appendingSilence(buffer, seconds: utterances[index].pauseAfter)
-        durations[index] = Double(buffer.frameLength) / NeuralVoiceCatalog.sampleRate
-        let startsNow = scheduledAhead == 0
+        // A buffer queued behind others plays right after them; one queued after the player ran dry plays now.
+        let start = scheduledAhead > 0 ? timelineEnd : max(timelineEnd, playerSampleTime() ?? 0)
+        let sampleRate = buffer.format.sampleRate
+        let timings = SpeechWords.timings(for: utterances[index].text, spoken: words)
+        timeline.append(Scheduled(
+            index: index, start: start, end: start + AVAudioFramePosition(padded.frameLength),
+            duration: Double(buffer.frameLength) / sampleRate,
+            words: timings.map { ($0.range, start + AVAudioFramePosition($0.time * sampleRate)) }))
+        timelineEnd = start + AVAudioFramePosition(padded.frameLength)
         scheduledAhead += 1
-        if startsNow {
-            setWaiting(false)
-            delegate?.backend(didStart: index, duration: durations[index].map { $0 / rate })
-        }
+        setWaiting(false)
         // Called on an audio thread.
         let completion: @Sendable (AVAudioPlayerNodeCompletionCallbackType) -> Void = { [weak self] _ in
             Task { @MainActor in
                 guard let self, generation == self.generation else { return }
                 self.scheduledAhead -= 1
-                // The next scheduled sentence starts as this one ends.
-                if self.scheduledAhead > 0, index + 1 < self.utterances.count {
-                    self.delegate?.backend(didStart: index + 1, duration: self.durations[index + 1].map { $0 / self.rate })
-                }
                 self.fill()
             }
         }
         player.scheduleBuffer(padded, completionCallbackType: .dataPlayedBack, completionHandler: completion)
         if !isPaused, !player.isPlaying { player.play() }
+        trackPlayback()
+    }
+
+    // MARK: - Following the voice
+
+    /// Where the player is on its timeline, in samples: what it's rendering now.
+    private func playerSampleTime() -> AVAudioFramePosition? {
+        guard let nodeTime = player.lastRenderTime, nodeTime.isSampleTimeValid,
+              let playerTime = player.playerTime(forNodeTime: nodeTime) else { return nil }
+        return playerTime.sampleTime
+    }
+
+    /// Where the listener is on the player's timeline: what's being heard, which lags what's rendered by the
+    /// output's latency (more with Bluetooth). The timeline runs at the reading speed.
+    private func heardPosition() -> AVAudioFramePosition? {
+        guard let rendered = playerSampleTime(), let format = Self.format else { return nil }
+        return rendered - AVAudioFramePosition(AVAudioSession.sharedInstance().outputLatency * format.sampleRate * rate)
+    }
+
+    private func startTracking() {
+        guard tracking == nil else { return }
+        tracking = Task { [weak self] in
+            while !Task.isCancelled {
+                guard let self else { return }
+                self.trackPlayback()
+                try? await Task.sleep(for: .milliseconds(30))
+            }
+        }
+    }
+
+    /// Reports the sentence and word being heard when they change.
+    private func trackPlayback() {
+        guard !isPaused, let position = heardPosition(),
+              let current = timeline.last(where: { $0.start <= position }) else { return }
+        // Sentences already heard are no longer needed.
+        timeline.removeAll { $0.end <= position && $0.index != current.index }
+        if reported?.index != current.index {
+            reported = (current.index, nil)
+            // With word timings, words turn the page; without them, the sentence's length does.
+            delegate?.backend(didStart: current.index, duration: current.words.isEmpty ? current.duration / rate : nil)
+        }
+        guard let word = current.words.lastIndex(where: { $0.start <= position }), reported?.word != word else { return }
+        reported = (current.index, word)
+        delegate?.backend(willSpeakWord: current.words[word].range, in: current.index)
     }
 
     private func setWaiting(_ waiting: Bool) {
@@ -350,8 +415,8 @@ final class NeuralSpeechBackend: SpeechBackend {
     }
 
     @concurrent
-    nonisolated private static func samples(for text: String, voice: NeuralVoiceCatalog.Voice, directory: URL,
-                                            voiceURL: URL) async -> Result<[Float]?, NeuralVoiceError> {
+    nonisolated private static func speech(for text: String, voice: NeuralVoiceCatalog.Voice, directory: URL,
+                                           voiceURL: URL) async -> Result<PocketSynthesizer.Speech?, NeuralVoiceError> {
         guard !Task.isCancelled else { return .success(nil) }
         do {
             return .success(try await NeuralSpeechService.shared.synthesize(text, voice: voice, directory: directory, voiceURL: voiceURL))
