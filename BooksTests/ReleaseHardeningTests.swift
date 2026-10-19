@@ -90,6 +90,15 @@ final class ReleaseHardeningTests: XCTestCase {
         XCTAssertEqual(total, turnEvery * 2, accuracy: 5)
     }
 
+    func testVoiceFilesDownloadFromThePublicRelease() {
+        let release = "https://github.com/Marginally-Better-Apps/mb-books/releases/download/\(NeuralVoiceCatalog.modelID)/"
+        let files = NeuralVoiceCatalog.models + NeuralVoiceCatalog.voices.map(\.file)
+        for file in files {
+            XCTAssertEqual(file.url.absoluteString, release + file.name)
+        }
+        XCTAssertEqual(Set(files.map(\.name)).count, files.count, "Release assets share one flat namespace")
+    }
+
     func testImportRejectsBooksWhoseChaptersAreAllMissing() throws {
         let package = Fixtures.package(metadata: "<dc:title>Missing chapter</dc:title>",
                                        manifest: #"<item id="chapter" href="missing.xhtml" media-type="application/xhtml+xml"/>"#,
