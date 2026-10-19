@@ -30,6 +30,28 @@ jobs:
           PR_TITLE: ${{ github.event.pull_request.title }}
         run: node scripts/conventional.cjs
 
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: SwiftLint
+        # Pinned by digest: realm/swiftlint 0.65.1.
+        run: >-
+          docker run --rm -v "$PWD:/work" -w /work
+          ghcr.io/realm/swiftlint@sha256:f47e083201e47a136cda5ae847595bfe00226c444ca226fa74fa5dc648a9b057
+          swiftlint lint --strict --reporter github-actions-logging
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '24'
+          cache: npm
+      - run: npm ci --ignore-scripts
+      - name: ESLint
+        run: npm run lint
+
   build:
     name: Validate and build
     # Liquid Glass and Icon Composer icons need the iOS 26 SDK.
@@ -59,12 +81,11 @@ jobs:
           python3 -m unittest discover -s scripts -p 'test_*.py'
           actionlint
           bash -n ios-build.sh ios-test.sh scripts/version.sh .githooks/commit-msg
-          node --check Books/Reader/Web/reader.js
-          node --check Books/Reader/Web/epub-reading-system.js
-          node --check Books/Reader/Web/frame.js
           xcodegen generate
           git diff --exit-code -- MBBooks.xcodeproj
       - name: Run unit and UI tests on a simulator
+        env:
+          MB_WARNINGS_AS_ERRORS: 'YES'
         run: ./ios-test.sh
       - name: Save test results
         if: failure()
@@ -87,7 +108,7 @@ jobs:
   release:
     name: Release
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    needs: [conventions, build]
+    needs: [conventions, lint, build]
     runs-on: macos-26
     timeout-minutes: 30
     permissions:

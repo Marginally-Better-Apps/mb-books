@@ -1,4 +1,5 @@
 import UIKit
+// swiftlint:disable:next duplicate_imports - the submodule exposes the gesture recognizer subclass API.
 import UIKit.UIGestureRecognizerSubclass
 
 /// One page turn: the page on screen and the page the turn reveals.

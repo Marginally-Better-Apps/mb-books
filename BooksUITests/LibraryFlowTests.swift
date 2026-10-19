@@ -8,8 +8,11 @@ final class LibraryFlowTests: XCTestCase {
 
     override func record(_ issue: XCTIssue) {
         // Attach what the screen looked like when an assertion failed.
+        // XCTest records failures on the main thread; anywhere else, skip the screenshot rather than trap.
         var issue = issue
-        issue.add(XCTAttachment(screenshot: XCUIScreen.main.screenshot()))
+        if Thread.isMainThread {
+            issue.add(XCTAttachment(screenshot: MainActor.assumeIsolated { XCUIScreen.main.screenshot() }))
+        }
         super.record(issue)
     }
 

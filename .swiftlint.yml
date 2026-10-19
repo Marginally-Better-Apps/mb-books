@@ -1,0 +1,35 @@
+# SwiftLint runs in CI with --strict, so every enabled rule must pass.
+# Rules that only restate the project's style choices are off; the rest catch real mistakes.
+included:
+  - Books
+  - BooksTests
+  - BooksUITests
+excluded:
+  - scripts
+
+disabled_rules:
+  # The code uses trailing commas in multiline literals on purpose.
+  - trailing_comma
+  # Short names like x, y, id, and i are clearer in geometry and parsing code.
+  - identifier_name
+  # Size and complexity metrics: refactor when the code calls for it, not to satisfy a counter.
+  - cyclomatic_complexity
+  - file_length
+  - function_body_length
+  - type_body_length
+  - nesting
+  - large_tuple
+  # `try!` is used only for constant regular expressions, which can't fail at runtime.
+  - force_try
+  # `String(decoding:as:)` is deliberate: book text is decoded leniently, never dropped.
+  - optional_data_string_conversion
+  - closure_parameter_position
+  - void_function_in_ternary
+  # TODOs are tracked in the code and in issues.
+  - todo
+
+line_length:
+  warning: 160
+  ignores_comments: true
+  ignores_urls: true
+  ignores_interpolated_strings: true

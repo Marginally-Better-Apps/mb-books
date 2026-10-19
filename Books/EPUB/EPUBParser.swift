@@ -99,7 +99,10 @@ nonisolated enum EPUBParser {
         let globalLayout = layout(meta: meta)
         let spineElement = package.child(named: "spine")
         let spine = parseSpine(spineElement, manifest: manifestByID, globalLayout: globalLayout)
-        guard !spine.isEmpty else { throw EPUBError.emptySpine }
+        // A book whose spine points only at missing files would open to blank pages, so refuse it here.
+        guard spine.contains(where: { $0.item.remoteURL != nil || container.contains($0.item.path) }) else {
+            throw EPUBError.emptySpine
+        }
 
         let progression = Publication.ReadingProgression(
             rawValue: spineElement?.attribute("page-progression-direction") ?? "") ?? .auto

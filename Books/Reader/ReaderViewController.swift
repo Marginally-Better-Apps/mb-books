@@ -195,7 +195,6 @@ final class ReaderViewController: UIViewController {
             fontScale: model.preferences.fontScale, scrolls: model.isScrollMode, allowsColumns: style.allowMultipleColumns)
         let palette = model.palette
         return ScriptConfiguration(
-            layout: publication.layout.rawValue,
             mode: model.isScrollMode ? "scroll" : "paginated",
             insets: .init(top: layout.top, bottom: layout.bottom, side: layout.side),
             columns: layout.columns,
@@ -1160,7 +1159,6 @@ struct ScriptConfiguration: Encodable, Equatable {
         let override: Bool
     }
 
-    let layout: String
     let mode: String
     let insets: Insets
     let columns: Int

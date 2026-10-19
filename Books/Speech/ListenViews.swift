@@ -421,6 +421,7 @@ nonisolated struct SpeechSection: Identifiable, Equatable, Sendable {
     }
 
     private static let chapterPattern = try! NSRegularExpression(
+        // swiftlint:disable:next line_length
         pattern: #"^(?:chapter|part|book|volume|letter|act|section|stave|canto|preface|prologue|epilogue|introduction|appendix|afterword|foreword)\b|^[ivxlcdm]+\.?$|^\d+\.?$"#,
         options: [.caseInsensitive])
 

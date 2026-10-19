@@ -50,7 +50,8 @@ nonisolated struct ZipArchive: Sendable {
     /// Reads an entry fully into memory. Use `extract(_:to:)` for large media.
     func contents(of entry: Entry) throws -> Data {
         var output = Data()
-        output.reserveCapacity(Int(clamping: entry.uncompressedSize))
+        // The declared size is untrusted; don't let it force a huge allocation up front.
+        output.reserveCapacity(Int(min(entry.uncompressedSize, 64 << 20)))
         try stream(entry) { output.append($0) }
         return output
     }
@@ -104,7 +105,7 @@ nonisolated struct ZipArchive: Sendable {
     private func stream(_ entry: Entry, into sink: @escaping (Data) throws -> Void) throws {
         guard !entry.isEncrypted else { throw ZipError.encrypted(entry.path) }
         let start = try dataOffset(of: entry)
-        guard start + entry.compressedSize <= UInt64(data.count) else {
+        guard let end = Self.checkedEnd(start, entry.compressedSize, within: data.count) else {
             throw ZipError.corrupt("\(entry.path) extends past the end of the archive")
         }
         var checksum = CRC32()
@@ -112,13 +113,16 @@ nonisolated struct ZipArchive: Sendable {
         let emit: (Data) throws -> Void = { chunk in
             checksum.update(chunk)
             written += UInt64(chunk.count)
+            // Stop a deflate bomb as soon as it outgrows its declared size.
+            guard written <= entry.uncompressedSize else {
+                throw ZipError.corrupt("\(entry.path) has the wrong size")
+            }
             try sink(chunk)
         }
 
         switch entry.method {
         case Method.stored:
             var offset = start
-            let end = start + entry.compressedSize
             while offset < end {
                 let next = min(end, offset + UInt64(Self.chunkSize))
                 try emit(data.subdata(in: Int(offset)..<Int(next)))
@@ -130,7 +134,6 @@ nonisolated struct ZipArchive: Sendable {
                 if let chunk { try emit(chunk) }
             }
             var offset = start
-            let end = start + entry.compressedSize
             while offset < end {
                 let next = min(end, offset + UInt64(Self.chunkSize))
                 try filter.write(data.subdata(in: Int(offset)..<Int(next)))
@@ -148,8 +151,10 @@ nonisolated struct ZipArchive: Sendable {
     }
 
     private func dataOffset(of entry: Entry) throws -> UInt64 {
-        let offset = Int(entry.localHeaderOffset)
-        guard offset >= 0, offset + 30 <= data.count, data.uint32(at: offset) == 0x0403_4B50 else {
+        guard Self.checkedEnd(entry.localHeaderOffset, 30, within: data.count) != nil,
+              case let offset = Int(entry.localHeaderOffset),
+              data.uint32(at: offset) == 0x0403_4B50
+        else {
             throw ZipError.corrupt("Missing local header for \(entry.path)")
         }
         let nameLength = UInt64(data.uint16(at: offset + 26))
@@ -167,8 +172,11 @@ nonisolated struct ZipArchive: Sendable {
 
         let locator = eocd - 20
         if locator >= 0, data.uint32(at: locator) == 0x0706_4B50 {
-            let record = Int(clamping: data.uint64(at: locator + 8))
-            guard record >= 0, record + 56 <= data.count, data.uint32(at: record) == 0x0606_4B50 else {
+            let recordOffset = data.uint64(at: locator + 8)
+            guard checkedEnd(recordOffset, 56, within: data.count) != nil,
+                  case let record = Int(recordOffset),
+                  data.uint32(at: record) == 0x0606_4B50
+            else {
                 throw ZipError.corrupt("Invalid ZIP64 end record")
             }
             entryCount = data.uint64(at: record + 32)
@@ -176,14 +184,15 @@ nonisolated struct ZipArchive: Sendable {
             directoryOffset = data.uint64(at: record + 48)
         }
 
-        guard directoryOffset + directorySize <= UInt64(data.count) else {
+        guard let directoryEnd = checkedEnd(directoryOffset, directorySize, within: data.count) else {
             throw ZipError.corrupt("Central directory is out of bounds")
         }
 
         var entries: [Entry] = []
-        entries.reserveCapacity(Int(clamping: entryCount))
+        // Each record is at least 46 bytes, so a forged count can't force a huge allocation.
+        entries.reserveCapacity(Int(min(entryCount, directorySize / 46)))
         var cursor = Int(directoryOffset)
-        let end = Int(directoryOffset + directorySize)
+        let end = Int(directoryEnd)
         while cursor + 46 <= end, data.uint32(at: cursor) == 0x0201_4B50 {
             let flags = data.uint16(at: cursor + 8)
             let method = data.uint16(at: cursor + 10)
@@ -231,6 +240,12 @@ nonisolated struct ZipArchive: Sendable {
             cursor = nameStart + nameLength + extraLength + commentLength
         }
         return entries
+    }
+
+    /// `offset + length`, or nil when it overflows or passes `count`. Archive fields are untrusted.
+    private static func checkedEnd(_ offset: UInt64, _ length: UInt64, within count: Int) -> UInt64? {
+        let (end, overflow) = offset.addingReportingOverflow(length)
+        return !overflow && end <= UInt64(count) ? end : nil
     }
 
     private static func findEndOfCentralDirectory(_ data: Data) -> Int? {

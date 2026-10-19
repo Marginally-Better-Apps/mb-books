@@ -70,7 +70,7 @@ final class NeuralVoiceStore {
                         try await Self.fetch(model, to: archive) { [weak self] fraction in
                             Task { @MainActor in self?.state = .downloading(start + fraction * share) }
                         }
-                        try await Self.extract(archive, into: directory)
+                        try await Self.install(archive, at: modelURL(model))
                     }
                     done += model.size
                     state = .downloading(Double(done) / total)
@@ -138,6 +138,22 @@ final class NeuralVoiceStore {
         guard try sha256(of: temporary) == file.sha256 else { throw NeuralVoiceError.checksum(file.name) }
         try? FileManager.default.removeItem(at: destination)
         try FileManager.default.moveItem(at: temporary, to: destination)
+    }
+
+    /// Unpacks a model archive beside `destination`, then moves it into place. An unpack cut short (say, by the app
+    /// being closed) leaves only the staging folder, so the model never looks installed when it's incomplete.
+    @concurrent
+    private nonisolated static func install(_ archive: URL, at destination: URL) async throws {
+        let fileManager = FileManager.default
+        let staging = destination.deletingLastPathComponent().appending(path: ".staging", directoryHint: .isDirectory)
+        try? fileManager.removeItem(at: staging)
+        try fileManager.createDirectory(at: staging, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: staging) }
+        try await extract(archive, into: staging)
+        let unpacked = staging.appending(path: destination.lastPathComponent, directoryHint: .isDirectory)
+        guard fileManager.fileExists(atPath: unpacked.path) else { throw NeuralVoiceError.download(archive.lastPathComponent) }
+        try? fileManager.removeItem(at: destination)
+        try fileManager.moveItem(at: unpacked, to: destination)
     }
 
     /// Unpacks an Apple Archive into `directory`, then deletes it.

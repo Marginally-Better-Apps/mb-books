@@ -1,5 +1,5 @@
 const fs = require('node:fs');
-const pattern = /^(feat|fix|perf|refactor|docs|test|build|ci|chore|style|revert)(\([a-zA-Z0-9_.\/-]+\))?!?: \S.*$/;
+const pattern = /^(feat|fix|perf|refactor|docs|test|build|ci|chore|style|revert)(\([a-zA-Z0-9_./-]+\))?!?: \S.*$/;
 function valid(message) {
   return pattern.test(message.split(/\r?\n/)[0]);
 }

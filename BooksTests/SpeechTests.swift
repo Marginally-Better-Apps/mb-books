@@ -269,7 +269,9 @@ final class SpeechExtractionTests: XCTestCase {
                 <item id="t" href="text.xhtml" media-type="application/xhtml+xml"/>
                 """,
             spine: "<itemref idref=\"c\"/><itemref idref=\"t\"/>", version: "2.0")
-            .replacingOccurrences(of: "</package>", with: "<guide><reference type=\"copyright-page\" title=\"Copyright\" href=\"copyright.xhtml\"/></guide></package>")
+            .replacingOccurrences(
+                of: "</package>",
+                with: "<guide><reference type=\"copyright-page\" title=\"Copyright\" href=\"copyright.xhtml\"/></guide></package>")
         let data = try Fixtures.epub(package: package, files: [
             "copyright.xhtml": Fixtures.xhtml("<p>Published by somebody.</p>"),
             "text.xhtml": Fixtures.xhtml("<p>Story.</p>"),
