@@ -35,7 +35,9 @@
     } catch (_) { /* Very old documents only; styles are best-effort there. */ }
   }
 
-  const isFixed = () => state.config.layout === 'pre-paginated' || state.config.layout === 'roll';
+  // Fixed-layout pages always arrive in wrapper documents (see `WrapperDocument`), so any other document is a
+  // reflowable chapter, even in a fixed-layout book whose spine marks that chapter reflowable.
+  const isFixed = () => wrapperKind !== null;
   const isPaginated = () => !isFixed() && state.config.mode !== 'scroll';
 
   function highlightCSS(dark) {

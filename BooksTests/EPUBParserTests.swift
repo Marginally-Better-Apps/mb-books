@@ -77,14 +77,15 @@ final class EPUBParserTests: XCTestCase {
     }
 
     func testDetectsFixedLayoutsRollsAndSpineOverrides() throws {
-        func layoutOf(_ meta: String, spine: String = #"<itemref idref="c1"/><itemref idref="c2" properties="rendition:layout-reflowable"/>"#) throws -> Publication {
+        let overrides = #"<itemref idref="c1"/><itemref idref="c2" properties="rendition:layout-reflowable"/>"#
+        func layoutOf(_ meta: String, spine: String? = nil) throws -> Publication {
             try parse(Fixtures.epub(package: Fixtures.package(
                 metadata: "<dc:title>T</dc:title>\(meta)",
                 manifest: """
                     <item id="c1" href="p1.xhtml" media-type="application/xhtml+xml"/>
                     <item id="c2" href="p2.xhtml" media-type="application/xhtml+xml"/>
                     """,
-                spine: spine, spineAttributes: #"page-progression-direction="rtl""#),
+                spine: spine ?? overrides, spineAttributes: #"page-progression-direction="rtl""#),
                 files: ["p1.xhtml": Fixtures.xhtml(""), "p2.xhtml": Fixtures.xhtml("")]))
         }
 

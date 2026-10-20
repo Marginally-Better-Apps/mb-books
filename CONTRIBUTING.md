@@ -18,6 +18,8 @@ Run these before requesting review:
 ```sh
 npm ci
 npm test
+npm run lint
+swiftlint lint --strict
 python3 -m unittest discover -s scripts -p 'test_*.py'
 actionlint
 ```

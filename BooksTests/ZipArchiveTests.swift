@@ -59,6 +59,21 @@ final class ZipArchiveTests: XCTestCase {
         XCTAssertThrowsError(try ZipArchive(url: url)) { XCTAssertEqual($0 as? ZipError, .notAZip) }
     }
 
+    func testRejectsZIP64SizesThatOverflow() throws {
+        // A ZIP64 end record whose central directory offset plus size wraps past UInt64.max.
+        var data = Data()
+        func append<T: FixedWidthInteger>(_ value: T) { withUnsafeBytes(of: value.littleEndian) { data.append(contentsOf: $0) } }
+        append(UInt32(0x0606_4B50)); append(UInt64(44)); append(UInt16(45)); append(UInt16(45))
+        append(UInt32(0)); append(UInt32(0)); append(UInt64(0)); append(UInt64(0))
+        append(UInt64(1)); append(UInt64.max)
+        append(UInt32(0x0706_4B50)); append(UInt32(0)); append(UInt64(0)); append(UInt32(1))
+        append(UInt32(0x0605_4B50)); for _ in 0..<4 { append(UInt16(0)) }; append(UInt32(0)); append(UInt32(0)); append(UInt16(0))
+        let url = try Fixtures.write(data, named: "overflow.epub")
+        XCTAssertThrowsError(try ZipArchive(url: url)) { error in
+            XCTAssertEqual(error as? ZipError, .corrupt("Central directory is out of bounds"))
+        }
+    }
+
     func testCRC32MatchesKnownVector() {
         var crc = CRC32()
         crc.update(Data("123456789".utf8))

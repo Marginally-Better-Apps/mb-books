@@ -1,4 +1,4 @@
-import CoreML
+@preconcurrency import CoreML
 import Foundation
 import OSLog
 
@@ -201,7 +201,8 @@ nonisolated final class PocketSynthesizer: @unchecked Sendable {
             latent.withUnsafeMutableBufferPointer(ofType: Float.self) { destination, _ in
                 next.withUnsafeBufferPointer(ofType: Float.self) { source in _ = destination.update(fromContentsOf: source) }
             }
-            let decoded = latent
+            // A fresh array per frame, handed to the decoder queue and never touched here again.
+            nonisolated(unsafe) let decoded = latent
             decoding.async { decoder.decode(decoded, frame: frame) }
         }
         decoding.sync {}

@@ -9,7 +9,7 @@
   const readingSystem = Object.freeze({
     name: 'MB Books',
     version: typeof __MB_VERSION__ === 'string' ? __MB_VERSION__ : '1.0',
-    hasFeature(feature, version) {
+    hasFeature(feature, _version) {
       if (typeof feature !== 'string') return undefined;
       // Features defined by the specification are versionless; unknown features return undefined.
       return features.has(feature) ? true : undefined;

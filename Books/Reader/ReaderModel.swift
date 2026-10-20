@@ -95,7 +95,7 @@ final class ReaderModel {
     weak var speechFollower: SpeechFollowing?
     /// Reading aloud, once started.
     private(set) var listening: ListeningSession?
-    private var readingClock: Date?
+    var readingClock: Date?
 
     init(book: Book, publication: Publication, container: DirectoryContainer, context: ModelContext) {
         self.book = book
@@ -186,6 +186,7 @@ final class ReaderModel {
         book.location = updated
         book.progress = updated.totalProgression
         book.lastOpened = .now
+        checkpointReadingClock()
         Task { await refreshBookmarkState() }
     }
 
@@ -201,8 +202,14 @@ final class ReaderModel {
         }
         listening = session
         session.prewarm()
-        navigator?.clearSelection()
-        Task { await session.start(fromSelection: fromSelection) }
+        let follower = speechFollower
+        let navigator = navigator
+        Task {
+            // Read the selection before clearing it; clearing first would start from the page instead.
+            let selection = fromSelection ? await follower?.selectionTextOffset() : nil
+            navigator?.clearSelection()
+            await session.start(at: selection.map { ($0.spineIndex, $0.offset) })
+        }
     }
 
     /// The reader moved to another page themselves (not the narration following along).
@@ -321,6 +328,7 @@ final class ReaderModel {
         let query = searchQuery
         guard query.trimmingCharacters(in: .whitespaces).count >= 2 else {
             searchResults = []
+            isSearching = false
             return
         }
         isSearching = true
@@ -350,11 +358,25 @@ final class ReaderModel {
     func stopReadingClock() {
         guard let start = readingClock else { return }
         readingClock = nil
+        creditReading(since: start)
+    }
+
+    /// Turning a page shows the reader is still there: credit the time so far and restart the clock, so the idle
+    /// cap applies to the time since the last page rather than to the whole session.
+    private func checkpointReadingClock(now: Date = .now) {
+        guard let start = readingClock, now.timeIntervalSince(start) >= 60 else { return }
+        readingClock = now
+        creditReading(since: start, until: now)
+    }
+
+    private func creditReading(since start: Date, until end: Date = .now) {
         // Ignore long idle stretches, such as leaving the book open overnight.
-        let seconds = min(Date.now.timeIntervalSince(start), 30 * 60)
+        let seconds = min(end.timeIntervalSince(start), Self.maxIdleReadingTime)
         guard seconds >= 1 else { return }
         ReadingStats.record(seconds: seconds, in: context)
     }
+
+    static let maxIdleReadingTime: TimeInterval = 30 * 60
 
     func close() {
         stopListening()

@@ -86,6 +86,9 @@ final class ListeningSession {
     private var observers: [NSObjectProtocol] = []
     private var commandTargets: [(MPRemoteCommand, Any)] = []
     private var startedAt = Date()
+    /// Bumped by `start` and `stop`. Work that awaited a chapter checks it is still current before playing,
+    /// so a Stop can't be undone by a chapter that finishes loading afterwards.
+    private var generation = 0
 
     init(book: Book, publication: Publication, container: DirectoryContainer) {
         self.book = book
@@ -122,20 +125,29 @@ final class ListeningSession {
 
     /// Starts reading from the top of the page on screen, or from the selection.
     func start(fromSelection: Bool = false) async {
+        await start(at: fromSelection ? reader?.selectionTextOffset().map { ($0.spineIndex, $0.offset) } : nil)
+    }
+
+    /// Starts reading at a text position captured by the caller, or from the page on screen when nil.
+    func start(at position: (spineIndex: Int, offset: Int?)?) async {
+        generation += 1
+        let generation = generation
         state = .loading
         isFollowing = true
         var spineIndex = 0
         var offset: Int?
-        if fromSelection, let selection = await reader?.selectionTextOffset() {
-            spineIndex = selection.spineIndex
-            offset = selection.offset
+        if let position {
+            spineIndex = position.spineIndex
+            offset = position.offset
         } else if let visible = await reader?.visibleTextOffset() {
             spineIndex = visible.spineIndex
             offset = visible.offset
         } else if let location = book.location {
             spineIndex = location.spineIndex
         }
-        guard let chapter = await provider.readableChapter(from: spineIndex) else {
+        let chapter = await provider.readableChapter(from: spineIndex)
+        guard generation == self.generation else { return }
+        guard let chapter else {
             state = .failed(String(localized: "There's nothing to read from here."))
             return
         }
@@ -150,6 +162,7 @@ final class ListeningSession {
     }
 
     func stop() {
+        generation += 1
         backend?.stop()
         backend = nil
         pageTurnTask?.cancel()
@@ -266,7 +279,6 @@ final class ListeningSession {
         updateNowPlaying()
     }
 
-    /// Moves by whole sentences, crossing into neighboring chapters.
     /// Moves by whole sentences, crossing into neighboring chapters. Keeps playing or stays paused.
     func skip(by count: Int) {
         guard let chapter else { return }
@@ -276,13 +288,17 @@ final class ListeningSession {
             play(chapter, from: target, startPlaying: playing)
             return
         }
+        let generation = generation
         Task {
             if target < 0, let previous = await provider.readableChapter(from: chapter.spineIndex - 1, forward: false) {
+                guard generation == self.generation else { return }
                 play(previous, from: previous.utterances.count - 1, startPlaying: playing)
             } else if target >= chapter.utterances.count,
                       let next = await provider.readableChapter(from: chapter.spineIndex + 1) {
+                guard generation == self.generation else { return }
                 play(next, from: 0, startPlaying: playing)
             } else {
+                guard generation == self.generation else { return }
                 play(chapter, from: max(0, min(target, chapter.utterances.count - 1)), startPlaying: playing)
             }
         }
@@ -291,13 +307,15 @@ final class ListeningSession {
     func skipChapter(forward: Bool) {
         guard let chapter else { return }
         let playing = state == .playing
+        let generation = generation
         Task {
             if !forward, index > 2 {
                 play(chapter, from: 0, startPlaying: playing)
                 return
             }
             let from = chapter.spineIndex + (forward ? 1 : -1)
-            if let target = await provider.readableChapter(from: from, forward: forward) {
+            if let target = await provider.readableChapter(from: from, forward: forward),
+               generation == self.generation {
                 play(target, from: 0, startPlaying: playing)
             }
         }
@@ -317,7 +335,6 @@ final class ListeningSession {
     }
 
     // MARK: - Following along
-
 
     private func follow(_ utterance: SpeechUtterance, duration: TimeInterval?) {
         pageTurnTask?.cancel()
@@ -485,8 +502,11 @@ extension ListeningSession: SpeechBackendDelegate {
 
     func backendDidFinish() {
         guard let chapter, state == .playing else { return }
+        let generation = generation
         Task {
-            if let next = await provider.readableChapter(from: chapter.spineIndex + 1) {
+            let next = await provider.readableChapter(from: chapter.spineIndex + 1)
+            guard generation == self.generation else { return }
+            if let next {
                 play(next, from: 0)
             } else {
                 state = .finished

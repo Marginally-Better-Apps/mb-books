@@ -74,6 +74,7 @@
 		D6E3232401C5041D0795858D /* frame.js in Resources */ = {isa = PBXBuildFile; fileRef = 181897A48DDD6F37AB938CA1 /* frame.js */; };
 		D8A1D30BEE18F121BD00F334 /* ScanReader.swift in Sources */ = {isa = PBXBuildFile; fileRef = C2C0F7EC3AF77A393B95055C /* ScanReader.swift */; };
 		DAB2ACA110029C3A5AD55BB1 /* NeuralVoiceStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = F606C4C0992B1E4EFA5DB1DA /* NeuralVoiceStore.swift */; };
+		DC18637438A3B91456870EDA /* ReleaseHardeningTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3027973CF6BE9D1A107F1E29 /* ReleaseHardeningTests.swift */; };
 		DED8E91683C585AA1BAF63F4 /* epub-reading-system.js in Resources */ = {isa = PBXBuildFile; fileRef = 497033B68FD1F3767FF9CF11 /* epub-reading-system.js */; };
 		DF42FF5DBD942EA0D2C5443D /* ZipWriter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5BD9796EB4EAA6A37FB21875 /* ZipWriter.swift */; };
 		E3E94477A2D53F6F4AD4DBAC /* preview-peter_yearsley.m4a in Resources */ = {isa = PBXBuildFile; fileRef = 8506FEDD979BA264F10D87CD /* preview-peter_yearsley.m4a */; };
@@ -129,6 +130,7 @@
 		2AA2FCFC013809F491E392F7 /* Locator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Locator.swift; sourceTree = "<group>"; };
 		2F79821EF18476496BAF7F38 /* BookCover.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BookCover.swift; sourceTree = "<group>"; };
 		2FF383C61E45CA8D019F3358 /* pocket-tokenizer.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = "pocket-tokenizer.json"; sourceTree = "<group>"; };
+		3027973CF6BE9D1A107F1E29 /* ReleaseHardeningTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReleaseHardeningTests.swift; sourceTree = "<group>"; };
 		313F7B1A373701D1235A5E92 /* ZipArchive.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ZipArchive.swift; sourceTree = "<group>"; };
 		3EC20C12BE53713F92F085AF /* preview-paul.m4a */ = {isa = PBXFileReference; path = "preview-paul.m4a"; sourceTree = "<group>"; };
 		405AE4B09697903F6FBFBA94 /* SpeechScript.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpeechScript.swift; sourceTree = "<group>"; };
@@ -226,6 +228,7 @@
 				E8B41373B1F0B72E30C3FE45 /* ImportAndLibraryTests.swift */,
 				E999B8929D084F7207CCBBFC /* pocket-tokenizer-cases.json */,
 				79F0E2BE6A52D8040E6D2D8F /* ReaderLogicTests.swift */,
+				3027973CF6BE9D1A107F1E29 /* ReleaseHardeningTests.swift */,
 				4A282A012061B12DC9DCEF6A /* SpeechTests.swift */,
 				060FBE5DFECF8474981FF190 /* ZipArchiveTests.swift */,
 			);
@@ -562,6 +565,7 @@
 				E5850BDF0B3847A104225072 /* Fixtures.swift in Sources */,
 				CC91002E3193F74A5307DBBD /* ImportAndLibraryTests.swift in Sources */,
 				02F289D35282F08AB8430910 /* ReaderLogicTests.swift in Sources */,
+				DC18637438A3B91456870EDA /* ReleaseHardeningTests.swift in Sources */,
 				34C73B407E633156438C2F5D /* SpeechTests.swift in Sources */,
 				8EAFE1DCE377AA5206359897 /* ZipArchiveTests.swift in Sources */,
 			);

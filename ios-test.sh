@@ -16,7 +16,8 @@ xcodebuild -project MBBooks.xcodeproj -scheme MBBooks -configuration Debug \
   -packageCachePath "$GALA_BUILD_DIR/SwiftPM" \
   -resultBundlePath "$results" \
   -parallel-testing-enabled NO \
-  -jobs "${GALA_JOBS:-2}" CODE_SIGNING_ALLOWED=NO test
+  -jobs "${GALA_JOBS:-2}" CODE_SIGNING_ALLOWED=NO \
+  SWIFT_TREAT_WARNINGS_AS_ERRORS="${MB_WARNINGS_AS_ERRORS:-NO}" test
 /usr/libexec/PlistBuddy -c 'Print CFBundleIdentifier' \
   "$GALA_BUILD_DIR/DerivedData/Build/Products/Debug-iphonesimulator/MBBooks.app/Info.plist" \
   | /usr/bin/grep -qx 'com.mbbooks.MBBooks'

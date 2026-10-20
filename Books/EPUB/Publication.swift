@@ -118,7 +118,7 @@ nonisolated struct NavigationPoint: Sendable, Hashable, Identifiable, Codable {
     let fragment: String?
     let children: [NavigationPoint]
     /// The structural semantic of a landmark, such as `toc`, `copyright-page`, or `bodymatter`.
-    var type: String? = nil
+    var type: String?
 }
 
 nonisolated enum FontObfuscation: String, Sendable {

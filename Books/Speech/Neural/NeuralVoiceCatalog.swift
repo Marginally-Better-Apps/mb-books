@@ -25,7 +25,7 @@ nonisolated enum NeuralVoiceCatalog {
         let sha256: String
 
         var file: File {
-            File(name: "\(id).bin", url: NeuralVoiceCatalog.repository.appending(path: "voices/\(id).bin"), size: size, sha256: sha256)
+            File(name: "\(id).bin", url: NeuralVoiceCatalog.repository.appending(path: "\(id).bin"), size: size, sha256: sha256)
         }
 
         var description: String {
@@ -45,8 +45,9 @@ nonisolated enum NeuralVoiceCatalog {
     static let modelID = "pocket-tts-2026-09-v2"
     /// Folders of earlier model downloads, removed to give the space back.
     static let retiredModelIDs = ["kokoro-82m-v1.0", "kokoro-82m-v1.0-q8", "pocket-tts-2026-09-v1"]
-    // TODO: Move to a public host before release. The tailnet only reaches the developer's own devices.
-    static let repository = URL(string: "https://shloks-macbook-air.taildb44.ts.net:8443/pocket-tts/v2")!
+    /// The files are assets of a GitHub release on this repository, named after `modelID`. A new model needs a new
+    /// release (and a new `modelID`); never replace files in a published one, since the checksums pin them.
+    static let repository = URL(string: "https://github.com/Marginally-Better-Apps/mb-books/releases/download/\(modelID)")!
 
     /// Core ML models, archived with Apple Archive: the transformer (8-bit weights) and the audio decoder.
     static let models = [
