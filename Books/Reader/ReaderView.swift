@@ -147,11 +147,10 @@ private struct ReaderScreen: View {
                     } label: {
                         Image(systemName: "xmark")
                             .font(.system(size: 17, weight: .semibold))
-                            .frame(width: 44, height: 44)
-                            .contentShape(.circle)
+                            .frame(width: 30, height: 30)
                     }
-                    .buttonStyle(.plain)
-                    .glassEffect(.regular.interactive(), in: .circle)
+                    .buttonStyle(.glass)
+                    .buttonBorderShape(.circle)
                     .accessibilityLabel("Close Book")
                     .accessibilityIdentifier("reader.close")
                     .transition(.opacity.combined(with: .scale(scale: 0.8)))
@@ -167,21 +166,10 @@ private struct ReaderScreen: View {
                 }
                 Spacer()
                 if model.isChromeVisible {
-                    Button {
-                        if model.isListening { model.sheet = .listen } else { model.startListening() }
-                    } label: {
-                        Image(systemName: "headphones")
-                            .font(.system(size: 17, weight: .semibold))
-                            .foregroundStyle(model.isListening ? AnyShapeStyle(.white) : AnyShapeStyle(.primary))
-                            .frame(width: 44, height: 44)
-                            .contentShape(.circle)
-                    }
-                    .buttonStyle(.plain)
-                    // Tinted while the book is read aloud, so it's clear the button now opens the listening options.
-                    .glassEffect(model.isListening ? .regular.tint(.accentColor).interactive() : .regular.interactive(), in: .circle)
-                    .accessibilityLabel(model.isListening ? "Listening Options" : "Listen")
-                    .accessibilityIdentifier("reader.listen")
-                    .transition(.opacity.combined(with: .scale(scale: 0.8)))
+                    listenButton
+                        .accessibilityLabel(model.isListening ? "Listening Options" : "Listen")
+                        .accessibilityIdentifier("reader.listen")
+                        .transition(.opacity.combined(with: .scale(scale: 0.8)))
                 } else {
                     Color.clear.frame(width: 44, height: 44)
                 }
@@ -225,6 +213,24 @@ private struct ReaderScreen: View {
             .padding(.bottom, 4)
         }
         .animation(.smooth(duration: 0.25), value: model.isChromeVisible)
+    }
+
+    /// Tinted while the book is read aloud, so it's clear the button now opens the listening options.
+    @ViewBuilder
+    private var listenButton: some View {
+        let button = Button {
+            if model.isListening { model.sheet = .listen } else { model.startListening() }
+        } label: {
+            Image(systemName: "headphones")
+                .font(.system(size: 17, weight: .semibold))
+                .frame(width: 30, height: 30)
+        }
+        .buttonBorderShape(.circle)
+        if model.isListening {
+            button.buttonStyle(.glassProminent)
+        } else {
+            button.buttonStyle(.glass)
+        }
     }
 
     private var menuLayer: some View {
