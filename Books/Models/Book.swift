@@ -74,6 +74,12 @@ final class Book {
     var isNew: Bool { lastOpened == nil && !isFinished }
     var isReading: Bool { lastOpened != nil && !isFinished }
 
+    /// Progress rounded to a whole percent, at least 1% once a book has been opened, as Apple Books shows it.
+    var percentRead: Double {
+        let percent = (progress * 100).rounded()
+        return (lastOpened == nil ? percent : max(1, percent)) / 100
+    }
+
     var highlights: [Annotation] {
         annotations.filter { $0.kind == .highlight }.sorted(by: Annotation.readingOrder)
     }

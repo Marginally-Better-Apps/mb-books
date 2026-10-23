@@ -48,10 +48,11 @@ class IPAValidationTests(unittest.TestCase):
                 with self.subTest(override=override), self.assertRaises(AssertionError):
                     module.validate(self.fixture(directory, **override))
 
-    def test_rejects_missing_reader_resources_document_types_and_icon(self):
+    def test_rejects_missing_resources_document_types_and_icon(self):
         with tempfile.TemporaryDirectory() as directory:
             for options in (
                 {"omit": ("reader.js",)},
+                {"omit": ("PrivacyInfo.xcprivacy",)},
                 {"CFBundleDocumentTypes": []},
                 {"CFBundleIcons": {}},
             ):

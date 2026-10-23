@@ -147,10 +147,11 @@ private struct ReaderScreen: View {
                     } label: {
                         Image(systemName: "xmark")
                             .font(.system(size: 17, weight: .semibold))
-                            .frame(width: 30, height: 30)
+                            .frame(width: 44, height: 44)
+                            .contentShape(.circle)
                     }
-                    .buttonStyle(.glass)
-                    .buttonBorderShape(.circle)
+                    .buttonStyle(.plain)
+                    .glassEffect(.regular.interactive(), in: .circle)
                     .accessibilityLabel("Close Book")
                     .accessibilityIdentifier("reader.close")
                     .transition(.opacity.combined(with: .scale(scale: 0.8)))
@@ -169,12 +170,15 @@ private struct ReaderScreen: View {
                     Button {
                         if model.isListening { model.sheet = .listen } else { model.startListening() }
                     } label: {
-                        Image(systemName: model.isListening ? "headphones.circle.fill" : "headphones")
+                        Image(systemName: "headphones")
                             .font(.system(size: 17, weight: .semibold))
-                            .frame(width: 30, height: 30)
+                            .foregroundStyle(model.isListening ? AnyShapeStyle(.white) : AnyShapeStyle(.primary))
+                            .frame(width: 44, height: 44)
+                            .contentShape(.circle)
                     }
-                    .buttonStyle(.glass)
-                    .buttonBorderShape(.circle)
+                    .buttonStyle(.plain)
+                    // Tinted while the book is read aloud, so it's clear the button now opens the listening options.
+                    .glassEffect(model.isListening ? .regular.tint(.accentColor).interactive() : .regular.interactive(), in: .circle)
                     .accessibilityLabel(model.isListening ? "Listening Options" : "Listen")
                     .accessibilityIdentifier("reader.listen")
                     .transition(.opacity.combined(with: .scale(scale: 0.8)))

@@ -1,14 +1,18 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
   <defs>
     <linearGradient id="fill" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0" stop-color="#7a54fa"/>
-      <stop offset="1" stop-color="#4029b3"/>
+      <stop offset="0" stop-color="#2a3d7d"/>
+      <stop offset="1" stop-color="#121a42"/>
     </linearGradient>
   </defs>
-  <rect width="64" height="64" rx="14" fill="url(#fill)"/>
-  <g fill="#fff" stroke="#fff" stroke-width="2.5" stroke-linejoin="round" opacity="0.95">
-    <path d="M30.75 22 C26.25 19.1 20.1 18.4 13.9 19.5 L13.9 44 C20.1 43 26.25 43.6 30.75 46.6 Z"/>
-    <path d="M33.25 22 C37.75 19.1 43.9 18.4 50.1 19.5 L50.1 44 C43.9 43 37.75 43.6 33.25 46.6 Z"/>
+  <rect width="1024" height="1024" rx="230" fill="url(#fill)"/>
+  <g transform="translate(0 -26)" stroke-linejoin="round">
+    <path d="M512 400 C440 346 326 332 204 352 L204 694 C326 678 440 690 512 740 C584 690 698 678 820 694 L820 352 C698 332 584 346 512 400 Z" fill="#d8c9ac" stroke="#d8c9ac" stroke-width="16"/>
+    <path d="M482 650 L542 650 L542 852 L512 822 L482 852 Z" fill="#ff8000" stroke="#ff8000" stroke-width="8"/>
+    <g fill="#fbf6ec" stroke="#fbf6ec" stroke-width="16">
+      <path d="M502 362 C442 314 336 298 222 316 L222 668 C336 652 442 664 502 708 Z"/>
+      <path d="M522 362 C582 314 688 298 802 316 L802 668 C688 652 582 664 522 708 Z"/>
+    </g>
+    <path d="M522 362 C566 300 628 262 700 248 C716 380 720 520 712 628 C640 630 576 652 522 708 Z" fill="#ffffff" stroke="#e6ddd0" stroke-width="8"/>
   </g>
-  <path d="M40.75 17.6 L45.5 17.6 L45.5 30.4 L43.1 28.2 L40.75 30.4 Z" fill="#ff9f0a"/>
 </svg>

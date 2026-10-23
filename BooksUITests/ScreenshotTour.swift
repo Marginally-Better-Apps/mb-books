@@ -83,7 +83,7 @@ final class ScreenshotTour: XCTestCase {
         let book = app.buttons["book.The Sample Voyage"]
         XCTAssertTrue(book.waitForExistence(timeout: 15))
         book.tap()
-        sleep(2)
+        waitForFirstChapter(app)
         save("01-page")
         app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
         save("02-chrome")
@@ -136,8 +136,61 @@ final class ScreenshotTour: XCTestCase {
         save("15-home-dark")
         app.tabBars.buttons["Library"].tap()
         book.tap()
-        sleep(2)
+        waitForFirstChapter(app)
         save("16-reader-dark")
+    }
+
+    /// Captures the library screens: the empty library, grid, list, details, collections, and search.
+    func testLibraryTour() throws {
+        guard let output = ProcessInfo.processInfo.environment["MB_TOUR_OUTPUT"] else {
+            throw XCTSkip("Set MB_TOUR_OUTPUT to run the screenshot tour.")
+        }
+        let outputURL = URL(filePath: output)
+        try FileManager.default.createDirectory(at: outputURL, withIntermediateDirectories: true)
+        func save(_ name: String) {
+            sleep(1)
+            try? XCUIScreen.main.screenshot().pngRepresentation.write(to: outputURL.appending(path: "lib-\(name).png"))
+        }
+        let empty = XCUIApplication()
+        empty.launchArguments = ["-ui-testing"]
+        empty.launch()
+        XCTAssertTrue(empty.buttons["library.addBooks"].waitForExistence(timeout: 15))
+        save("01-empty")
+        empty.terminate()
+
+        let app = XCUIApplication()
+        app.launchArguments = ["-ui-testing", "-seed-sample-book"]
+        app.launch()
+        let book = app.buttons["book.The Sample Voyage"]
+        app.tabBars.buttons["Library"].tap()
+        XCTAssertTrue(book.waitForExistence(timeout: 15))
+        save("02-grid")
+        book.tap()
+        waitForFirstChapter(app)
+        app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+        if app.buttons["reader.close"].waitForExistence(timeout: 5) { app.buttons["reader.close"].tap() }
+        sleep(2)
+        app.tabBars.buttons["Home"].tap()
+        save("03-home-reading")
+        app.tabBars.buttons["Library"].tap()
+        app.buttons["More"].firstMatch.tap()
+        save("04-more-menu")
+        app.buttons["List"].tap()
+        save("05-list")
+        app.buttons["More for The Sample Voyage"].firstMatch.tap()
+        save("06-book-menu")
+        app.buttons["Book Details"].tap()
+        save("07-details")
+        app.buttons["Done"].firstMatch.tap()
+        sleep(1)
+        app.buttons["library.collections"].tap()
+        save("08-collections")
+        app.navigationBars.buttons.element(boundBy: 0).tap()
+        app.tabBars.buttons["Search"].tap()
+        save("09-search")
+        app.searchFields.firstMatch.tap()
+        app.searchFields.firstMatch.typeText("Voyage")
+        save("10-search-results")
     }
 
     /// Captures listening: the controls, the highlight following along, and the listening options.
@@ -158,7 +211,7 @@ final class ScreenshotTour: XCTestCase {
         let book = app.buttons["book.The Sample Voyage"]
         XCTAssertTrue(book.waitForExistence(timeout: 15))
         book.tap()
-        sleep(2)
+        waitForFirstChapter(app)
         app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
         save("01-chrome")
         app.buttons["reader.listen"].tap()
@@ -423,5 +476,11 @@ final class ScreenshotTour: XCTestCase {
             sleep(1)
         }
         XCUIDevice.shared.orientation = .portrait
+    }
+
+    /// Waits for the sample book's first chapter, which a busy Mac can take far longer than a fixed sleep to render.
+    private func waitForFirstChapter(_ app: XCUIApplication) {
+        XCTAssertTrue(app.webViews.staticTexts["Departure"].waitForExistence(timeout: 60), "Chapter 1 should render")
+        sleep(1)
     }
 }
