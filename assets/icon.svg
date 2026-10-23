@@ -2,17 +2,15 @@
   <defs>
     <linearGradient id="fill" x1="0" y1="0" x2="0" y2="1">
       <stop offset="0" stop-color="#2a3d7d"/>
-      <stop offset="1" stop-color="#121a42"/>
+      <stop offset="1" stop-color="#17214d"/>
     </linearGradient>
   </defs>
   <rect width="1024" height="1024" rx="230" fill="url(#fill)"/>
-  <g transform="translate(0 -26)" stroke-linejoin="round">
-    <path d="M512 400 C440 346 326 332 204 352 L204 694 C326 678 440 690 512 740 C584 690 698 678 820 694 L820 352 C698 332 584 346 512 400 Z" fill="#d8c9ac" stroke="#d8c9ac" stroke-width="16"/>
-    <path d="M482 650 L542 650 L542 852 L512 822 L482 852 Z" fill="#ff8000" stroke="#ff8000" stroke-width="8"/>
-    <g fill="#fbf6ec" stroke="#fbf6ec" stroke-width="16">
-      <path d="M502 362 C442 314 336 298 222 316 L222 668 C336 652 442 664 502 708 Z"/>
-      <path d="M522 362 C582 314 688 298 802 316 L802 668 C688 652 582 664 522 708 Z"/>
+  <g transform="translate(0 26)" stroke-linejoin="round" stroke-width="20">
+    <g fill="#f6f1e7" stroke="#f6f1e7">
+      <path d="M500 330 C430 286 330 276 220 292 L220 700 C330 686 430 694 500 736 Z"/>
+      <path d="M524 330 C594 286 694 276 804 292 L804 700 C694 686 594 694 524 736 Z"/>
     </g>
-    <path d="M522 362 C566 300 628 262 700 248 C716 380 720 520 712 628 C640 630 576 652 522 708 Z" fill="#ffffff" stroke="#e6ddd0" stroke-width="8"/>
+    <path fill="#fff" stroke="#fff" d="M524 330 C564 280 620 250 688 238 L688 650 C620 662 564 692 524 736 Z"/>
   </g>
 </svg>

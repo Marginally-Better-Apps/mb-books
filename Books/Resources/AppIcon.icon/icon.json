@@ -4,7 +4,7 @@
       "value": {
         "linear-gradient": [
           "display-p3:0.17000,0.24000,0.48000,1.00000",
-          "display-p3:0.07000,0.10000,0.25000,1.00000"
+          "display-p3:0.09000,0.13000,0.30000,1.00000"
         ]
       }
     },
@@ -22,57 +22,39 @@
     {
       "layers": [
         {
-          "fill-specializations": [
-            {
-              "appearance": "dark",
-              "value": {
-                "solid": "display-p3:0.98000,0.96000,0.92000,1.00000"
-              }
-            }
-          ],
           "glass": true,
           "image-name": "turn.svg",
-          "name": "turn"
-        },
-        {
+          "name": "turn",
           "fill-specializations": [
             {
               "appearance": "dark",
               "value": {
-                "solid": "display-p3:0.93000,0.90000,0.84000,1.00000"
+                "solid": "display-p3:0.97000,0.96000,0.93000,1.00000"
               }
             }
-          ],
+          ]
+        },
+        {
           "glass": true,
           "image-name": "pages.svg",
-          "name": "pages"
-        },
-        {
-          "glass": true,
-          "image-name": "ribbon.svg",
-          "name": "ribbon"
-        },
-        {
+          "name": "pages",
           "fill-specializations": [
             {
               "appearance": "dark",
               "value": {
-                "solid": "display-p3:0.70000,0.64000,0.54000,1.00000"
+                "solid": "display-p3:0.88000,0.85000,0.79000,1.00000"
               }
             }
-          ],
-          "glass": true,
-          "image-name": "stack.svg",
-          "name": "stack"
+          ]
         }
       ],
       "shadow": {
         "kind": "neutral",
-        "opacity": 0.5
+        "opacity": 0.35
       },
       "translucency": {
-        "enabled": true,
-        "value": 0.2
+        "enabled": false,
+        "value": 0.15
       }
     }
   ],
