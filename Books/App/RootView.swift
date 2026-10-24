@@ -93,7 +93,7 @@ struct LibraryToolbar: ToolbarContent {
 
     var body: some ToolbarContent {
         ToolbarItem(placement: .topBarTrailing) {
-            Button("Settings", systemImage: "person.crop.circle") { showSettings() }
+            Button("Settings", systemImage: "gearshape") { showSettings() }
                 .accessibilityIdentifier("settings.open")
         }
     }

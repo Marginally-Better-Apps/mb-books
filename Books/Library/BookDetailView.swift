@@ -66,7 +66,7 @@ struct BookDetailView: View {
                         info("Size", ByteCountFormatStyle().format(book.fileSize))
                         info("Format", String(localized: "EPUB \(book.epubVersion)") + (book.layout == .reflowable ? "" : " · " + layoutName))
                         info("Added", book.dateAdded.formatted(date: .abbreviated, time: .omitted))
-                        info("Progress", book.isFinished ? String(localized: "Finished") : "\(Int((book.progress * 100).rounded()))%")
+                        info("Progress", book.isFinished ? String(localized: "Finished") : book.percentRead.formatted(.percent))
                     }
                     .background(.background.secondary, in: .rect(cornerRadius: 16))
                     .padding(.horizontal)

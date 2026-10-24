@@ -100,9 +100,9 @@ struct BookProgressBadge: View {
                 .foregroundStyle(.white)
                 .padding(.horizontal, 6)
                 .padding(.vertical, 2)
-                .background(.blue, in: .capsule)
+                .background(.tint, in: .capsule)
         } else {
-            Text("\(max(1, Int((book.progress * 100).rounded())))%")
+            Text(book.percentRead, format: .percent)
                 .font(.caption.weight(.medium).monospacedDigit())
                 .foregroundStyle(.secondary)
         }

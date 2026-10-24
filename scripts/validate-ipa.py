@@ -5,8 +5,8 @@ import sys
 import zipfile
 
 APP = "Payload/MBBooks.app/"
-# The reader cannot render books without these bundled scripts.
-REQUIRED_RESOURCES = ("reader.js", "epub-reading-system.js", "frame.js", "Assets.car")
+# The reader cannot render books without these bundled scripts; App Store review needs the privacy manifest.
+REQUIRED_RESOURCES = ("reader.js", "epub-reading-system.js", "frame.js", "Assets.car", "PrivacyInfo.xcprivacy")
 
 
 def validate(path, expected_version=None, expected_build=None):

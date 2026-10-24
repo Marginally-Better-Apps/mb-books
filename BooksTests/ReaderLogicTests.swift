@@ -205,4 +205,15 @@ final class ReaderLogicTests: XCTestCase {
         XCTAssertEqual(Book.sortKey("An Answer"), "answer")
         XCTAssertEqual(Book.sortKey("Theory"), "theory")
     }
+
+    @MainActor
+    func testPercentReadRoundsAndShowsAtLeastOnePercentOnceOpened() {
+        let book = Book(metadata: PublicationMetadata(title: "Book"), epubVersion: "3.0", layout: .reflowable,
+                        fileSize: 1, hasOriginalFile: true)
+        XCTAssertEqual(book.percentRead, 0, "An unopened book hasn't been started")
+        book.lastOpened = .now
+        XCTAssertEqual(book.percentRead, 0.01, "Opening a book counts as starting it")
+        book.progress = 0.426
+        XCTAssertEqual(book.percentRead, 0.43, accuracy: 0.0001)
+    }
 }

@@ -278,10 +278,12 @@ private struct BookMenuButton: View {
         } label: {
             Image(systemName: "ellipsis")
                 .font(.body.weight(.semibold))
-                .foregroundStyle(.secondary)
-                .frame(width: 32, height: 28)
+                .frame(width: 44, height: 36)
                 .contentShape(.rect)
         }
+        // Menus take the accent color; this is a quiet secondary control, as in Apple Books.
+        .tint(.secondary)
+        .padding(.trailing, -10)
         .accessibilityLabel("More for \(book.title)")
         .confirmationDialog("Remove “\(book.title)”?", isPresented: $isConfirmingRemoval, titleVisibility: .visible) {
             Button("Remove from Library", role: .destructive) { library.delete([book], from: context) }

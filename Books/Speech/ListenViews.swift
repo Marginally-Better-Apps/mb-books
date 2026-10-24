@@ -22,7 +22,7 @@ struct ListenBar: View {
                 .transition(.opacity.combined(with: .scale(scale: 0.9)))
             }
             HStack(spacing: 4) {
-                control("gobackward", label: "Previous Sentence", id: "listen.back") { session.skip(by: -1) }
+                control("backward.fill", label: "Previous Sentence", id: "listen.back") { session.skip(by: -1) }
                 Button {
                     session.togglePlayback()
                 } label: {
@@ -41,7 +41,7 @@ struct ListenBar: View {
                 .buttonStyle(.plain)
                 .accessibilityLabel(session.isPlaying ? "Pause" : "Play")
                 .accessibilityIdentifier("listen.playPause")
-                control("goforward", label: "Next Sentence", id: "listen.forward") { session.skip(by: 1) }
+                control("forward.fill", label: "Next Sentence", id: "listen.forward") { session.skip(by: 1) }
                 Menu {
                     Picker("Speed", selection: Binding(
                         get: { session.preferences.speed }, set: { session.preferences.speed = $0 })) {

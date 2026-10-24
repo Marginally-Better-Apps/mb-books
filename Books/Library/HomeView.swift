@@ -71,7 +71,7 @@ private struct ContinueItem: View {
                 ProgressView(value: book.progress)
                     .tint(.primary)
                 HStack {
-                    Text("\(Int((book.progress * 100).rounded()))%")
+                    Text(book.percentRead, format: .percent)
                         .font(.caption.weight(.semibold).monospacedDigit())
                     Spacer(minLength: 4)
                     if let opened = book.lastOpened {
@@ -106,7 +106,7 @@ private struct ContinueCarousel: View {
                         }
                         .buttonStyle(.plain)
                         .bookInteractions(book)
-                        .accessibilityLabel("\(book.title), \(Int((book.progress * 100).rounded())) percent")
+                        .accessibilityLabel("\(book.title), \(book.percentRead.formatted(.percent))")
                         .accessibilityIdentifier("continue.\(book.title)")
                     }
                 }
@@ -119,76 +119,142 @@ private struct ContinueCarousel: View {
     }
 }
 
-/// Today's reading time, streak, and books finished this year.
+/// Today's reading time, streak, and books finished this year. Tapping a card opens Settings to change the goals.
 private struct ReadingGoalsSection: View {
     let books: [Book]
 
     @Query(sort: \ReadingDay.day, order: .reverse) private var days: [ReadingDay]
     @AppStorage(GoalDefaults.dailyMinutesKey) private var dailyGoal = GoalDefaults.dailyMinutes
     @AppStorage(GoalDefaults.yearlyBooksKey) private var yearlyGoal = GoalDefaults.yearlyBooks
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
     var body: some View {
-        let todayMinutes = (days.first { Calendar.current.isDateInToday($0.day) }?.seconds ?? 0) / 60
+        let todayMinutes = Int((days.first { Calendar.current.isDateInToday($0.day) }?.seconds ?? 0) / 60)
         let finishedThisYear = books.filter {
             guard let date = $0.dateFinished else { return false }
             return Calendar.current.isDate(date, equalTo: .now, toGranularity: .year)
         }.count
         let streak = ReadingStats.streak(from: days)
+        // Side by side, unless the text is too large to share a row.
+        let layout = dynamicTypeSize.isAccessibilitySize ? AnyLayout(VStackLayout(spacing: 12)) : AnyLayout(HStackLayout(spacing: 12))
 
         VStack(alignment: .leading, spacing: 12) {
             SectionHeader(title: "Reading Goals")
-            HStack(spacing: 14) {
-                GoalCard {
-                    HStack(spacing: 14) {
-                        ZStack {
-                            Circle().stroke(.quaternary, lineWidth: 8)
-                            Circle()
-                                .trim(from: 0, to: min(1, todayMinutes / Double(max(dailyGoal, 1))))
-                                .stroke(.orange.gradient, style: StrokeStyle(lineWidth: 8, lineCap: .round))
-                                .rotationEffect(.degrees(-90))
-                            Text("\(Int(todayMinutes))")
-                                .font(.headline.monospacedDigit())
-                        }
-                        .frame(width: 56, height: 56)
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text("Today's Reading").font(.subheadline.weight(.semibold))
-                            Text("\(Int(todayMinutes)) of \(dailyGoal) min")
-                                .font(.caption).foregroundStyle(.secondary)
-                            if streak > 0 {
-                                Label("\(streak)-day streak", systemImage: "flame.fill")
-                                    .font(.caption.weight(.medium))
-                                    .foregroundStyle(.orange)
-                            }
-                        }
+            layout {
+                GoalCard(title: "Today", value: todayMinutes, goal: "of \(dailyGoal) min") {
+                    GoalRing(progress: Double(todayMinutes) / Double(max(dailyGoal, 1)))
+                } detail: {
+                    if streak > 0 {
+                        Label("\(streak)-day streak", systemImage: "flame.fill")
+                            .foregroundStyle(.tint)
+                    } else {
+                        Text(todayMinutes >= dailyGoal ? "Goal met" : "\(max(dailyGoal - todayMinutes, 0)) min to go")
+                            .foregroundStyle(.secondary)
                     }
                 }
-                GoalCard {
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text("Books Read This Year").font(.subheadline.weight(.semibold))
-                        HStack(spacing: 4) {
-                            ForEach(0..<max(yearlyGoal, finishedThisYear), id: \.self) { index in
-                                RoundedRectangle(cornerRadius: 2)
-                                    .fill(index < finishedThisYear ? AnyShapeStyle(.orange.gradient) : AnyShapeStyle(.quaternary))
-                                    .frame(width: 12, height: 18)
-                            }
-                        }
-                        Text("\(finishedThisYear) of \(yearlyGoal)").font(.caption).foregroundStyle(.secondary)
-                    }
+                .accessibilityIdentifier("goals.today")
+                GoalCard(title: "This Year", value: finishedThisYear, goal: "of \(yearlyGoal) books") {
+                    EmptyView()
+                } detail: {
+                    BooksReadMeter(finished: finishedThisYear, goal: yearlyGoal)
                 }
+                .accessibilityIdentifier("goals.year")
             }
+            .buttonStyle(.plain)
+            .fixedSize(horizontal: false, vertical: true)
             .padding(.horizontal, 20)
         }
     }
 }
 
-private struct GoalCard<Content: View>: View {
-    @ViewBuilder let content: Content
+/// A goal: its title, how far along it is, and a detail line. Opens Settings, where goals are changed.
+private struct GoalCard<Accessory: View, Detail: View>: View {
+    let title: LocalizedStringKey
+    let value: Int
+    let goal: LocalizedStringKey
+    @ViewBuilder let accessory: Accessory
+    @ViewBuilder let detail: Detail
+
+    @Environment(\.showSettings) private var showSettings
 
     var body: some View {
-        content
-            .frame(maxWidth: .infinity, minHeight: 92, alignment: .leading)
-            .padding(14)
+        Button(action: showSettings) {
+            VStack(alignment: .leading, spacing: 6) {
+                Text(title)
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                HStack(alignment: .firstTextBaseline, spacing: 4) {
+                    Text(value, format: .number)
+                        .font(.system(.title, design: .rounded, weight: .bold))
+                        .contentTransition(.numericText())
+                    Text(goal)
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                }
+                Spacer(minLength: 0)
+                detail
+                    .font(.footnote.weight(.medium))
+                    .frame(minHeight: 18, alignment: .leading)
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
+            // An overlay, so the cards' rows line up whether or not they have an accessory.
+            .overlay(alignment: .topTrailing) { accessory }
+            .padding(16)
             .background(.background.secondary, in: .rect(cornerRadius: 20))
+            .contentShape(.rect(cornerRadius: 20))
+        }
+        .accessibilityElement(children: .combine)
+        .accessibilityHint("Opens Settings to change your reading goals.")
+    }
+}
+
+/// A small ring showing today's progress toward the daily goal.
+private struct GoalRing: View {
+    let progress: Double
+
+    var body: some View {
+        ZStack {
+            Circle().stroke(.quaternary, lineWidth: 5)
+            Circle()
+                .trim(from: 0, to: min(1, progress))
+                .stroke(.tint, style: StrokeStyle(lineWidth: 5, lineCap: .round))
+                .rotationEffect(.degrees(-90))
+        }
+        .frame(width: 26, height: 26)
+        .accessibilityHidden(true)
+    }
+}
+
+/// One mark per book for small goals; a bar for larger ones, whose marks wouldn't fit.
+private struct BooksReadMeter: View {
+    let finished: Int
+    let goal: Int
+
+    var body: some View {
+        let count = max(goal, finished)
+        Group {
+            if count <= 12 {
+                HStack(spacing: 4) {
+                    ForEach(0..<count, id: \.self) { index in
+                        Capsule()
+                            .fill(index < finished ? AnyShapeStyle(.tint) : AnyShapeStyle(.quaternary))
+                            .frame(maxWidth: 14)
+                    }
+                }
+            } else {
+                GeometryReader { proxy in
+                    Capsule()
+                        .fill(.quaternary)
+                        .overlay(alignment: .leading) {
+                            Capsule()
+                                .fill(.tint)
+                                .frame(width: proxy.size.width * min(1, Double(finished) / Double(max(goal, 1))))
+                        }
+                }
+            }
+        }
+        .frame(height: 8)
+        .accessibilityHidden(true)
     }
 }
 
