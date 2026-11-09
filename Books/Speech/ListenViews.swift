@@ -143,57 +143,80 @@ struct ListenSettingsView: View {
                     Text("Page numbers, notes, captions, code listings, and front and back matter like the copyright page and index are left out.")
                 }
             }
-            .navigationTitle("Voice")
+            .navigationTitle("Listening")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
-                    Button("Done", systemImage: "xmark") { dismiss() }
+                    Button(role: .close) { dismiss() }
                         .accessibilityIdentifier("listen.done")
                 }
             }
+            .sensoryFeedback(.selection, trigger: voiceSelection)
         }
         .presentationDetents([.large])
         .onAppear { session.prewarm() }
         .onDisappear { VoicePreview.shared.stop() }
     }
+
+    /// The chosen natural voice and Apple voice, so picking either gives a tap of feedback.
+    private var voiceSelection: [String?] {
+        let natural: String? = if case .natural(let id) = session.preferences.voice { id } else { nil }
+        return [natural, session.preferences.systemVoice(for: session.language)]
+    }
 }
 
-/// A row in the voice list: a preview button, the name, and a checkmark when chosen.
+/// A row in the voice list: a preview button, the name, and a checkmark when chosen, or a download glyph when the
+/// voice needs the natural voices downloaded first.
 private struct VoiceRow: View {
+    enum Status { case available, needsDownload, pending }
+
     let name: String
     let detail: String
     let isSelected: Bool
+    var status = Status.available
     let isPreviewing: Bool
     let id: String
     let preview: () -> Void
     let select: () -> Void
 
     var body: some View {
-        HStack(spacing: 12) {
+        HStack(spacing: 4) {
             Button(action: preview) {
                 Image(systemName: isPreviewing ? "stop.circle.fill" : "play.circle.fill")
                     .font(.title2)
                     .symbolRenderingMode(.hierarchical)
                     .contentTransition(.symbolEffect(.replace))
+                    .frame(width: 44, height: 44)
+                    .contentShape(.rect)
             }
             .buttonStyle(.borderless)
+            .padding(.leading, -8)
             .accessibilityLabel(isPreviewing ? "Stop Sample" : "Play Sample of \(name)")
             .accessibilityIdentifier("voice.preview.\(id)")
             Button(action: select) {
                 HStack {
                     VStack(alignment: .leading, spacing: 2) {
                         Text(name).foregroundStyle(.primary)
-                        Text(detail).font(.caption).foregroundStyle(.secondary)
+                        Text(status == .pending ? String(localized: "Will be used after download") : detail)
+                            .font(.caption).foregroundStyle(.secondary)
                     }
                     Spacer()
-                    if isSelected {
-                        Image(systemName: "checkmark").font(.body.weight(.semibold)).foregroundStyle(.tint)
+                    switch status {
+                    case .needsDownload:
+                        Image(systemName: "arrow.down.circle").foregroundStyle(.tint)
+                    case .pending:
+                        Image(systemName: "clock").foregroundStyle(.secondary)
+                    case .available:
+                        if isSelected {
+                            Image(systemName: "checkmark").font(.body.weight(.semibold)).foregroundStyle(.tint)
+                        }
                     }
                 }
                 .contentShape(.rect)
             }
             .buttonStyle(.plain)
             .accessibilityAddTraits(isSelected ? .isSelected : [])
+            .accessibilityHint(status == .needsDownload ? Text("Downloads the natural voices") : Text(verbatim: ""))
             .accessibilityIdentifier("voice.select.\(id)")
         }
     }
@@ -204,21 +227,29 @@ private struct NaturalVoicesSection: View {
     private var store: NeuralVoiceStore { .shared }
     private var preview: VoicePreview { .shared }
 
+    /// The voice tapped before the natural voices are downloaded, while asking to download them.
+    @State private var downloadCandidate: NeuralVoiceCatalog.Voice?
+
     var body: some View {
         Section {
             if !store.isReady { VoiceModelRow() }
             ForEach(NeuralVoiceCatalog.voices) { voice in
                 VoiceRow(
                     name: voice.name, detail: voice.description,
-                    isSelected: session.resolvedVoice == .natural(voice),
+                    isSelected: session.resolvedVoice == .natural(voice) || status(of: voice) == .pending,
+                    status: status(of: voice),
                     isPreviewing: preview.isPlaying(voice.id), id: voice.id,
                     preview: {
                         session.pause()
                         preview.toggle(voice)
                     },
                     select: {
-                        session.preferences.voice = .natural(voice.id)
-                        if !store.isReady { store.download() }
+                        // Downloading is a choice of its own: ask first, and never start reading.
+                        if store.isReady || store.isDownloading {
+                            session.preferences.voice = .natural(voice.id)
+                        } else {
+                            downloadCandidate = voice
+                        }
                     })
             }
         } header: {
@@ -226,8 +257,31 @@ private struct NaturalVoicesSection: View {
         } footer: {
             Text("Natural voices run entirely on this device, so nothing you read is sent anywhere. They read English books.")
         }
+        .confirmationDialog(
+            "Download Natural Voices?", isPresented: Binding(
+                get: { downloadCandidate != nil }, set: { if !$0 { downloadCandidate = nil } }),
+            titleVisibility: .visible, presenting: downloadCandidate
+        ) { voice in
+            Button("Download") {
+                // The chosen voice reads once the download finishes; until then the Apple voice stands in.
+                session.preferences.voice = .natural(voice.id)
+                store.download()
+            }
+            .accessibilityIdentifier("listen.confirmDownload")
+            Button("Cancel", role: .cancel) {}
+        } message: { _ in
+            Text("The natural voices are \(ByteCountFormatStyle().format(NeuralVoiceCatalog.downloadSize)) and run on this device. Wi-Fi is recommended.")
+        }
         .onChange(of: store.state) { _, state in
             if state == .ready { session.voiceDidChange() }
+        }
+    }
+
+    private func status(of voice: NeuralVoiceCatalog.Voice) -> VoiceRow.Status {
+        switch store.state {
+        case .ready: .available
+        case .downloading: session.preferences.naturalVoice == voice ? .pending : .available
+        case .notDownloaded, .failed: .needsDownload
         }
     }
 }
@@ -447,7 +501,7 @@ nonisolated struct SpeechSection: Identifiable, Equatable, Sendable {
         }.joined(separator: " ")
     }
 
-    /// "Leaves out 12 page number, 3 note reference": the most common omissions.
+    /// "Skips 12 page numbers and 3 note references": the most common omissions.
     static func omissionSummary(_ omissions: [SpeechOmission]) -> String? {
         var counts: [SpeechSkipReason: Int] = [:]
         for omission in omissions { counts[omission.reason, default: 0] += 1 }
@@ -455,7 +509,34 @@ nonisolated struct SpeechSection: Identifiable, Equatable, Sendable {
             lhs.value == rhs.value ? lhs.key.rawValue < rhs.key.rawValue : lhs.value > rhs.value
         }.map { ($0.key, $0.value) }
         guard !top.isEmpty else { return nil }
-        let items: [String] = top.prefix(3).map { reason, count in "\(count) \(reason.title.lowercased())" }
-        return String(localized: "Leaves out ") + items.joined(separator: ", ")
+        let items = top.prefix(3).map { reason, count in countedOmission(reason, count) }
+        return String(localized: "Skips \(items.formatted(.list(type: .and)))")
+    }
+
+    /// "1 note reference", "3 note references": a count with its noun agreeing, through automatic grammar agreement.
+    static func countedOmission(_ reason: SpeechSkipReason, _ count: Int) -> String {
+        let phrase: AttributedString = switch reason {
+        case .auxiliary: AttributedString(localized: "^[\(count) supplementary passage](inflect: true)")
+        case .cover: AttributedString(localized: "^[\(count) cover](inflect: true)")
+        case .titlePage: AttributedString(localized: "^[\(count) title page](inflect: true)")
+        case .copyright: AttributedString(localized: "^[\(count) copyright notice](inflect: true)")
+        case .tableOfContents: AttributedString(localized: "^[\(count) table of contents](inflect: true)")
+        case .index: AttributedString(localized: "^[\(count) index](inflect: true)")
+        case .notes: AttributedString(localized: "^[\(count) note](inflect: true)")
+        case .bibliography: AttributedString(localized: "^[\(count) bibliography](inflect: true)")
+        case .colophon: AttributedString(localized: "^[\(count) colophon](inflect: true)")
+        case .boilerplate: AttributedString(localized: "^[\(count) passage of license text](inflect: true)")
+        case .pageNumber: AttributedString(localized: "^[\(count) page number](inflect: true)")
+        case .noteReference: AttributedString(localized: "^[\(count) note reference](inflect: true)")
+        case .hidden: AttributedString(localized: "^[\(count) passage of hidden text](inflect: true)")
+        case .navigation: AttributedString(localized: "^[\(count) navigation list](inflect: true)")
+        case .pullQuote: AttributedString(localized: "^[\(count) pull quote](inflect: true)")
+        case .runningHead: AttributedString(localized: "^[\(count) running head](inflect: true)")
+        case .annotation: AttributedString(localized: "^[\(count) pronunciation guide](inflect: true)")
+        case .illustration: AttributedString(localized: "^[\(count) illustration caption](inflect: true)")
+        case .code: AttributedString(localized: "^[\(count) code listing](inflect: true)")
+        case .empty: AttributedString(localized: "^[\(count) empty passage](inflect: true)")
+        }
+        return String(phrase.characters)
     }
 }

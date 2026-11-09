@@ -80,6 +80,25 @@ final class ReaderLogicTests: XCTestCase {
         XCTAssertTrue(BookSearcher.search("x", in: publication, container: container).isEmpty, "Single characters are ignored")
     }
 
+    func testSearchSnippetsLeaveOutNoteMarkersButKeepOffsets() throws {
+        let archive = try ZipArchive(url: Fixtures.write(SampleBook.make()))
+        let content = try Fixtures.temporaryDirectory()
+        try archive.extractAll(to: content)
+        let container = DirectoryContainer(root: content)
+        let publication = try EPUBParser.parse(container)
+
+        let result = try XCTUnwrap(BookSearcher.search("checked the", in: publication, container: container).first)
+        XCTAssertTrue(result.after.hasPrefix(" compass twice."), result.after)
+        let text = try BookSearcher.bodyText(container.data(at: publication.spine[0].item.path)) as NSString
+        XCTAssertEqual(text.substring(with: NSRange(location: result.offset, length: result.match.utf16.count)), "checked the")
+        XCTAssertTrue(text.contains("compass1 twice"), "Body text keeps the marker, so offsets match reader.js")
+
+        let html = Fixtures.xhtml(##"<p>One<sup><a href="#n2">2</a></sup> two<a epub:type="noteref" href="#n3">[3]</a>.</p>"##)
+        let indexed = try BookSearcher.indexedBodyText(Data(html.utf8))
+        let markers = indexed.noteMarkers.map { (indexed.text as NSString).substring(with: $0) }
+        XCTAssertTrue(markers.contains("2") && markers.contains("[3]"), "\(markers)")
+    }
+
     func testBodyTextSkipsScriptsAndStyles() throws {
         let html = Fixtures.xhtml("<style>p{}</style><p>Hello <b>world</b></p><script>var x = 1;</script>&amp; more")
         XCTAssertEqual(try BookSearcher.bodyText(Data(html.utf8)), "Hello world& more")

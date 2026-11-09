@@ -15,6 +15,13 @@ struct BookSearchView: View {
                 } else if model.searchResults.isEmpty, model.searchQuery.count >= 2 {
                     ContentUnavailableView.search(text: model.searchQuery).listRowSeparator(.hidden)
                 }
+                if !model.searchResults.isEmpty {
+                    Section {
+                    } header: {
+                        Text("^[\(model.searchResults.count) Result](inflect: true)")
+                            .accessibilityIdentifier("bookSearch.count")
+                    }
+                }
                 ForEach(groups, id: \.spineIndex) { group in
                     Section {
                         ForEach(group.results) { result in
@@ -35,32 +42,17 @@ struct BookSearchView: View {
                 }
             }
             .listStyle(.plain)
-            .safeAreaInset(edge: .top) {
-                HStack {
-                    Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
-                    TextField("Search Book", text: $model.searchQuery)
-                        .focused($focused)
-                        .submitLabel(.search)
-                        .autocorrectionDisabled()
-                        .textInputAutocapitalization(.never)
-                        .accessibilityIdentifier("bookSearch.field")
-                    if !model.searchQuery.isEmpty {
-                        Button("Clear", systemImage: "xmark.circle.fill") { model.searchQuery = "" }
-                            .labelStyle(.iconOnly)
-                            .foregroundStyle(.secondary)
-                    }
-                }
-                .padding(.horizontal, 14)
-                .frame(height: 44)
-                .glassEffect(.regular, in: .capsule)
-                .padding(.horizontal)
-                .padding(.bottom, 8)
-            }
+            .searchable(text: $model.searchQuery, placement: .navigationBarDrawer(displayMode: .always), prompt: "Search Book")
+            .searchFocused($focused)
+            .searchPresentationToolbarBehavior(.avoidHidingContent)
+            .autocorrectionDisabled()
+            .textInputAutocapitalization(.never)
             .navigationTitle("Search Book")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
-                    Button("Done", systemImage: "xmark") { dismiss() }
+                    Button(role: .close) { dismiss() }
+                        .accessibilityIdentifier("bookSearch.close")
                 }
             }
             .task(id: model.searchQuery) {
