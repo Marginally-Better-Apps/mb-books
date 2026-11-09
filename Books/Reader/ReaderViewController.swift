@@ -167,6 +167,7 @@ final class ReaderViewController: UIViewController {
 
         let chapter = ChapterView(configuration: configuration)
         chapter.frame = view.bounds
+        chapter.horizontalInset = pageInset
         chapter.autoresizingMask = [.flexibleWidth, .flexibleHeight]
         chapter.webView.navigationDelegate = self
         chapter.webView.uiDelegate = self
@@ -200,9 +201,7 @@ final class ReaderViewController: UIViewController {
 
     private func scriptConfig() -> ScriptConfiguration {
         let style = model.preferences.style
-        let layout = ReaderLayout(
-            size: view.bounds.size, safeArea: view.safeAreaInsets, margins: style.margins,
-            fontScale: model.preferences.fontScale, scrolls: model.isScrollMode, allowsColumns: style.allowMultipleColumns)
+        let layout = readerLayout
         let palette = model.palette
         return ScriptConfiguration(
             mode: model.isScrollMode ? "scroll" : "paginated",
@@ -221,6 +220,22 @@ final class ReaderViewController: UIViewController {
                 text: palette.text.cssHex,
                 link: palette.link.cssHex,
                 override: model.preferences.theme.overridesPublisherColors(dark: model.isDarkAppearance)))
+    }
+
+    private var readerLayout: ReaderLayout {
+        let style = model.preferences.style
+        return ReaderLayout(
+            size: view.bounds.size, safeArea: view.safeAreaInsets, margins: style.margins,
+            fontScale: model.preferences.fontScale, scrolls: model.isScrollMode, allowsColumns: style.allowMultipleColumns)
+    }
+
+    /// Reflowable pages sit inside the side safe areas, so the Dynamic Island's inset is applied once at the
+    /// screen's edges rather than to every column. Fixed-layout pages still fill the screen.
+    private var pageInset: CGFloat { model.isFixedLayout ? 0 : readerLayout.inset }
+
+    private func updatePageInsets() {
+        let inset = pageInset
+        for chapter in chapters { chapter.horizontalInset = inset }
     }
 
     private func updateBackground() {
@@ -328,6 +343,7 @@ final class ReaderViewController: UIViewController {
 
     private func reconfigure() {
         updateBackground()
+        updatePageInsets()
         installUserScripts()
         installPresenter()
         updateScrolling()
@@ -594,14 +610,14 @@ final class ReaderViewController: UIViewController {
         case "relocated" where isCurrent:
             didRelocate(body)
         case "tap" where isCurrent:
-            didTap(at: CGPoint(x: body.double("x"), y: body.double("y")))
+            didTap(at: CGPoint(x: body.double("x") + current.horizontalInset, y: body.double("y")))
         case "link" where isCurrent:
             if let href = body["href"] as? String, let url = URL(string: href) { follow(url) }
         case "footnote" where isCurrent:
-            model.popover = ReaderPopover(content: .footnote(body["text"] as? String ?? ""), rect: body.rect("rect"))
+            model.popover = ReaderPopover(content: .footnote(body["text"] as? String ?? ""), rect: pageRect(body))
         case "highlightTap" where isCurrent:
             if let id = (body["id"] as? String).flatMap(UUID.init) {
-                model.popover = ReaderPopover(content: .highlight(id), rect: body.rect("rect"))
+                model.popover = ReaderPopover(content: .highlight(id), rect: pageRect(body))
             }
         case "selection" where isCurrent:
             hasSelection = body["active"] as? Bool ?? false
@@ -677,6 +693,11 @@ final class ReaderViewController: UIViewController {
 
     /// Taps that `reader.js` reports: the middle of the page toggles the chrome, and the edges of
     /// fixed-layout pages turn them. `handleEdgeTap(_:)` turns reflowable pages without waiting for WebKit's click.
+    /// A rect `reader.js` reported, in the reader's coordinates rather than the inset page's.
+    private func pageRect(_ body: [String: Any]) -> CGRect {
+        body.rect("rect").offsetBy(dx: current.horizontalInset, dy: 0)
+    }
+
     private func didTap(at point: CGPoint) {
         if model.popover != nil {
             model.popover = nil

@@ -428,11 +428,54 @@ private struct ListeningFailureBanner: View {
 }
 
 private extension View {
-    /// The reading theme's light or dark appearance, for views presented from the reader. The preference
-    /// styles the sheet or popover itself, which the environment alone leaves in the system appearance.
+    /// The reading theme's light or dark appearance, for views presented from the reader. The environment
+    /// styles the content, and the presentation itself (the sheet or popover) is overridden to match.
+    /// A `preferredColorScheme` here would fight the app's own Appearance setting.
     func readerColorScheme(_ palette: ThemePalette) -> some View {
-        preferredColorScheme(palette.isDark ? .dark : .light)
-            .environment(\.colorScheme, palette.isDark ? .dark : .light)
+        environment(\.colorScheme, palette.isDark ? .dark : .light)
+            .background(PresentationAppearance(style: palette.isDark ? .dark : .light))
+    }
+}
+
+/// Sets the interface style of the presentation it's placed in, and only that presentation.
+private struct PresentationAppearance: UIViewControllerRepresentable {
+    let style: UIUserInterfaceStyle
+
+    func makeUIViewController(context: Context) -> Controller { Controller(style: style) }
+
+    func updateUIViewController(_ controller: Controller, context: Context) {
+        controller.style = style
+        controller.apply()
+    }
+
+    final class Controller: UIViewController {
+        var style: UIUserInterfaceStyle
+
+        init(style: UIUserInterfaceStyle) {
+            self.style = style
+            super.init(nibName: nil, bundle: nil)
+        }
+
+        @available(*, unavailable)
+        required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
+
+        override func didMove(toParent parent: UIViewController?) {
+            super.didMove(toParent: parent)
+            apply()
+        }
+
+        override func viewWillAppear(_ animated: Bool) {
+            super.viewWillAppear(animated)
+            apply()
+        }
+
+        /// The presented controller is the root of this controller's parent chain.
+        func apply() {
+            var root: UIViewController = self
+            while let parent = root.parent { root = parent }
+            guard root.presentingViewController != nil else { return }
+            root.overrideUserInterfaceStyle = style
+        }
     }
 }
 

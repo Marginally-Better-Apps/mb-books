@@ -37,7 +37,6 @@ final class ChapterView: UIView {
         webView = BookWebView(frame: .zero, configuration: configuration)
         super.init(frame: .zero)
         webView.frame = bounds
-        webView.autoresizingMask = [.flexibleWidth, .flexibleHeight]
         webView.isOpaque = false
         webView.backgroundColor = .clear
         #if DEBUG
@@ -56,6 +55,17 @@ final class ChapterView: UIView {
 
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
+
+    /// How far the page sits in from each side, such as the Dynamic Island's inset in landscape.
+    /// The chapter's own background shows in the strips.
+    var horizontalInset: CGFloat = 0 {
+        didSet { if horizontalInset != oldValue { setNeedsLayout() } }
+    }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        webView.frame = bounds.insetBy(dx: min(horizontalInset, bounds.width / 4), dy: 0)
+    }
 
     /// Whether this is the page the reader interacts with. Spares stay silent, untouchable,
     /// and hidden from VoiceOver.

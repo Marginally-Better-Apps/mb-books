@@ -211,13 +211,20 @@ final class ReaderLogicTests: XCTestCase {
         let layout = ReaderLayout(size: CGSize(width: 874, height: 402), safeArea: safeArea,
                                   margins: 1, fontScale: 1, scrolls: false, allowsColumns: true)
         XCTAssertEqual(layout.columns, 2)
-        XCTAssertEqual(layout.side, 74, "The outer margins clear the Dynamic Island, not a big-screen margin on top of it")
-        let columnText = 874 / 2 - 2 * layout.side
-        XCTAssertLessThan(2 * layout.side, columnText, "The gutter is narrower than a column of text")
+        XCTAssertEqual(layout.inset, 62, "Pages sit clear of the Dynamic Island")
+        XCTAssertEqual(layout.side, 24, "Columns get the phone's plain margin, not a big-screen margin or the safe area")
+        let columnText = (874 - 2 * layout.inset) / 2 - 2 * layout.side
+        XCTAssertLessThan(2 * layout.side, columnText / 4, "The gutter is a normal reading gutter")
 
         let portrait = ReaderLayout(size: CGSize(width: 402, height: 874), safeArea: UIEdgeInsets(top: 62, left: 0, bottom: 34, right: 0),
                                     margins: 1.5, fontScale: 1, scrolls: false, allowsColumns: true)
-        XCTAssertEqual(portrait.side, 36, "Without a side inset the margin setting applies in full")
+        XCTAssertEqual(portrait.side, 36, "The margin setting applies in full")
+        XCTAssertEqual(portrait.inset, 0)
+
+        let scrolling = ReaderLayout(size: CGSize(width: 874, height: 402), safeArea: safeArea,
+                                     margins: 1, fontScale: 1, scrolls: true, allowsColumns: true)
+        XCTAssertEqual(874 - 2 * scrolling.inset - 2 * scrolling.side, ReaderLayout.readableMeasure, accuracy: 0.5,
+                       "Landscape scroll mode caps the line length")
     }
 
     func testPagesKeepTextClearOfTheControls() {

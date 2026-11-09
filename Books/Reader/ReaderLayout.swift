@@ -2,14 +2,17 @@ import UIKit
 
 /// Page geometry for reflowable text on any screen, from iPhone to a 13-inch iPad.
 struct ReaderLayout: Equatable {
-    /// The longest comfortable line, in points at the default font size and margins. On wide
-    /// screens the margins grow so lines don't get longer than this.
-    static let readableMeasure: CGFloat = 600
+    /// The longest comfortable line, in points at the default font size and margins (about 65 characters).
+    /// On wide screens the margins grow so lines don't get longer than this.
+    static let readableMeasure: CGFloat = 560
 
     let top: CGFloat
     let bottom: CGFloat
     let side: CGFloat
     let columns: Int
+    /// How far each page sits in from the screen's sides, clearing the Dynamic Island and rounded corners.
+    /// The page itself is that much narrower, so `side` is just the book's margin.
+    let inset: CGFloat
 
     /// - Parameters:
     ///   - margins: The theme's margin setting, as a multiple of the default.
@@ -19,12 +22,13 @@ struct ReaderLayout: Equatable {
         let isWide = min(size.width, size.height) >= 600
         let landscape = size.width > size.height
         columns = allowsColumns && landscape && size.width >= 700 && !scrolls ? 2 : 1
-        // `reader.js` pads both sides of every column by `side`, so the margin clears the safe area rather than
-        // adding to it; added, the Dynamic Island's inset would also double the gutter between two columns.
-        let margin = max((isWide ? 52 : 24) * margins, max(safeArea.left, safeArea.right) + 12 * margins)
+        // `reader.js` pads both sides of every column by `side`, so the safe area is kept out of the page
+        // instead; added to the margin, it would also double into the gutter between two columns.
+        inset = max(safeArea.left, safeArea.right)
+        let margin = (isWide ? 52 : 24) * margins
         // Wider margins narrow the measure too, so the setting still matters where lines are capped.
         let measure = Self.readableMeasure * max(1, fontScale) / max(margins, 0.1)
-        let columnWidth = size.width / CGFloat(columns)
+        let columnWidth = (size.width - 2 * inset) / CGFloat(columns)
         side = max(margin, (columnWidth - measure) / 2)
         // Pages keep their text clear of the controls above and below it (44–52 pt buttons, 4 pt from the safe area).
         // Scroll mode runs text nearly to the edges; the first and last lines still rest clear of the thin fades,
