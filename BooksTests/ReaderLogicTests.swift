@@ -187,6 +187,33 @@ final class ReaderLogicTests: XCTestCase {
         XCTAssertGreaterThan(wideMargins.side, padPortrait.side, "The margin setting still widens capped margins")
     }
 
+    func testLandscapePhoneColumnsClearTheDynamicIslandWithoutDoublingTheGutter() {
+        let safeArea = UIEdgeInsets(top: 0, left: 62, bottom: 21, right: 62)
+        let layout = ReaderLayout(size: CGSize(width: 874, height: 402), safeArea: safeArea,
+                                  margins: 1, fontScale: 1, scrolls: false, allowsColumns: true)
+        XCTAssertEqual(layout.columns, 2)
+        XCTAssertEqual(layout.side, 74, "The outer margins clear the Dynamic Island, not a big-screen margin on top of it")
+        let columnText = 874 / 2 - 2 * layout.side
+        XCTAssertLessThan(2 * layout.side, columnText, "The gutter is narrower than a column of text")
+
+        let portrait = ReaderLayout(size: CGSize(width: 402, height: 874), safeArea: UIEdgeInsets(top: 62, left: 0, bottom: 34, right: 0),
+                                    margins: 1.5, fontScale: 1, scrolls: false, allowsColumns: true)
+        XCTAssertEqual(portrait.side, 36, "Without a side inset the margin setting applies in full")
+    }
+
+    func testPagesKeepTextClearOfTheControls() {
+        let safeArea = UIEdgeInsets(top: 62, left: 0, bottom: 34, right: 0)
+        let phone = ReaderLayout(size: CGSize(width: 402, height: 874), safeArea: safeArea,
+                                 margins: 1, fontScale: 1, scrolls: false, allowsColumns: true)
+        // The top row of glass buttons is 44 pt tall, 4 pt below the safe area; the menu button is 48 pt, 4 pt above it.
+        XCTAssertGreaterThanOrEqual(phone.top, safeArea.top + 4 + 44 + 8)
+        XCTAssertGreaterThanOrEqual(phone.bottom, safeArea.bottom + 4 + 48 + 4)
+
+        let pad = ReaderLayout(size: CGSize(width: 1032, height: 1376), safeArea: UIEdgeInsets(top: 24, left: 0, bottom: 20, right: 0),
+                               margins: 1, fontScale: 1, scrolls: false, allowsColumns: true)
+        XCTAssertGreaterThan(pad.top - 24, phone.top - safeArea.top, "Big screens get roomier page margins")
+    }
+
     func testScrollFadesHugTheEdges() {
         let stops = ReaderLayout.scrollFadeStops(height: 1000, safeArea: UIEdgeInsets(top: 60, left: 0, bottom: 30, right: 0))
         XCTAssertEqual(stops.count, 4)
@@ -215,5 +242,32 @@ final class ReaderLogicTests: XCTestCase {
         XCTAssertEqual(book.percentRead, 0.01, "Opening a book counts as starting it")
         book.progress = 0.426
         XCTAssertEqual(book.percentRead, 0.43, accuracy: 0.0001)
+    }
+
+    func testWholePercentIsSharedByHomeAndTheReader() {
+        XCTAssertEqual(Book.wholePercent(0.001, opened: false), 0)
+        XCTAssertEqual(Book.wholePercent(0.001, opened: true), 1, "An open book shows at least 1%, in the reader as on Home")
+        XCTAssertEqual(Book.wholePercent(0.426, opened: true), 43)
+        XCTAssertEqual(Book.wholePercent(1, opened: true), 100)
+    }
+
+    func testSecondaryTextIsReadableOnEveryTheme() {
+        func linear(_ channel: UInt32) -> Double {
+            let value = Double(channel & 0xFF) / 255
+            return value <= 0.03928 ? value / 12.92 : pow((value + 0.055) / 1.055, 2.4)
+        }
+        func luminance(_ hex: UInt32) -> Double {
+            let red = 0.2126 * linear(hex >> 16)
+            let green = 0.7152 * linear(hex >> 8)
+            return red + green + 0.0722 * linear(hex)
+        }
+        for theme in ReaderThemeID.allCases {
+            for dark in [false, true] {
+                let palette = theme.palette(dark: dark)
+                let (a, b) = (luminance(palette.secondary), luminance(palette.background))
+                let contrast = (max(a, b) + 0.05) / (min(a, b) + 0.05)
+                XCTAssertGreaterThanOrEqual(contrast, 4.5, "\(theme) \(dark ? "dark" : "light") secondary text")
+            }
+        }
     }
 }

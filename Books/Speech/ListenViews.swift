@@ -1,76 +1,71 @@
 import AVFoundation
 import SwiftUI
 
-/// Playback controls shown in the reader while listening.
+/// Playback controls, docked in the reader's bottom row beside the menu button while listening.
+/// The reader's headphones button opens the listening options.
 struct ListenBar: View {
     let session: ListeningSession
-    let openSettings: () -> Void
+
+    // Sizes grow with Dynamic Type, but only so far: the bar must still fit beside the menu button on a
+    // 375 pt wide iPhone, and stay inside the page's bottom margin.
+    @ScaledMetric(relativeTo: .body) private var scaledGlyph: CGFloat = 17
+    @ScaledMetric(relativeTo: .body) private var scaledPlayGlyph: CGFloat = 22
+    @ScaledMetric(relativeTo: .body) private var scaledControl: CGFloat = 44
+
+    private var glyph: CGFloat { min(scaledGlyph, 21) }
+    private var playGlyph: CGFloat { min(scaledPlayGlyph, 26) }
+    private var side: CGFloat { min(scaledControl, 46) }
 
     var body: some View {
-        VStack(spacing: 8) {
-            if !session.isFollowing {
-                Button {
-                    session.returnToNarration()
-                } label: {
-                    Label("Return to Narration", systemImage: "arrow.uturn.backward")
-                        .font(.footnote.weight(.semibold))
-                        .padding(.horizontal, 14)
-                        .padding(.vertical, 8)
-                }
-                .buttonStyle(.glass)
-                .accessibilityIdentifier("listen.return")
-                .transition(.opacity.combined(with: .scale(scale: 0.9)))
-            }
-            HStack(spacing: 4) {
-                control("backward.fill", label: "Previous Sentence", id: "listen.back") { session.skip(by: -1) }
-                Button {
-                    session.togglePlayback()
-                } label: {
-                    ZStack {
-                        if session.state == .loading || session.isWaiting {
-                            ProgressView()
-                        } else {
-                            Image(systemName: session.isPlaying ? "pause.fill" : "play.fill")
-                                .font(.system(size: 22, weight: .semibold))
-                                .contentTransition(.symbolEffect(.replace))
-                        }
+        HStack(spacing: 4) {
+            control("backward.fill", label: "Previous Sentence", id: "listen.back") { session.skip(by: -1) }
+            Button {
+                session.togglePlayback()
+            } label: {
+                ZStack {
+                    if session.state == .loading || session.isWaiting {
+                        ProgressView()
+                    } else {
+                        Image(systemName: session.isPlaying ? "pause.fill" : "play.fill")
+                            .font(.system(size: playGlyph, weight: .semibold))
+                            .contentTransition(.symbolEffect(.replace))
                     }
-                    .frame(width: 52, height: 48)
+                }
+                .frame(width: side + 8, height: side + 4)
+                .contentShape(.rect)
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel(session.isPlaying ? "Pause" : "Play")
+            .accessibilityIdentifier("listen.playPause")
+            control("forward.fill", label: "Next Sentence", id: "listen.forward") { session.skip(by: 1) }
+            Menu {
+                Picker("Speed", selection: Binding(
+                    get: { session.preferences.speed }, set: { session.preferences.speed = $0 })) {
+                    ForEach(ListeningPreferences.speeds, id: \.self) { speed in
+                        Text(Self.speedLabel(speed)).tag(speed)
+                    }
+                }
+            } label: {
+                Text(Self.speedLabel(session.preferences.speed))
+                    .font(.footnote.weight(.semibold).monospacedDigit())
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.6)
+                    .frame(width: side + 4, height: side)
                     .contentShape(.rect)
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel(session.isPlaying ? "Pause" : "Play")
-                .accessibilityIdentifier("listen.playPause")
-                control("forward.fill", label: "Next Sentence", id: "listen.forward") { session.skip(by: 1) }
-                Menu {
-                    Picker("Speed", selection: Binding(
-                        get: { session.preferences.speed }, set: { session.preferences.speed = $0 })) {
-                        ForEach(ListeningPreferences.speeds, id: \.self) { speed in
-                            Text(Self.speedLabel(speed)).tag(speed)
-                        }
-                    }
-                } label: {
-                    Text(Self.speedLabel(session.preferences.speed))
-                        .font(.footnote.weight(.semibold).monospacedDigit())
-                        .frame(width: 48, height: 44)
-                        .contentShape(.rect)
-                }
-                .accessibilityLabel("Speed")
-                .accessibilityIdentifier("listen.speed")
-                control("ellipsis", label: "Listening Options", id: "listen.options", action: openSettings)
-                control("xmark", label: "Stop Listening", id: "listen.stop") { session.stop() }
             }
-            .padding(.horizontal, 8)
-            .glassEffect(.regular.interactive(), in: .capsule)
+            .accessibilityLabel("Speed")
+            .accessibilityIdentifier("listen.speed")
+            control("xmark", label: "Stop Listening", id: "listen.stop") { session.stop() }
         }
-        .animation(.smooth(duration: 0.25), value: session.isFollowing)
+        .padding(.horizontal, 8)
+        .glassEffect(.regular.interactive(), in: .capsule)
     }
 
     private func control(_ systemImage: String, label: LocalizedStringKey, id: String, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Image(systemName: systemImage)
-                .font(.system(size: 17, weight: .medium))
-                .frame(width: 44, height: 44)
+                .font(.system(size: glyph, weight: .medium))
+                .frame(width: side, height: side)
                 .contentShape(.rect)
         }
         .buttonStyle(.plain)
@@ -87,6 +82,9 @@ struct ListenBar: View {
 struct ListenPill: View {
     let session: ListeningSession
 
+    @ScaledMetric(relativeTo: .body) private var glyph: CGFloat = 16
+    @ScaledMetric(relativeTo: .body) private var side: CGFloat = 44
+
     var body: some View {
         Button {
             session.togglePlayback()
@@ -96,10 +94,11 @@ struct ListenPill: View {
                     ProgressView()
                 } else {
                     Image(systemName: session.isPlaying ? "pause.fill" : "play.fill")
-                        .font(.system(size: 16, weight: .semibold))
+                        .font(.system(size: min(glyph, 20), weight: .semibold))
                 }
             }
-            .frame(width: 44, height: 44)
+            // Capped to stay inside the page's bottom margin.
+            .frame(width: min(side, 52), height: min(side, 52))
             .contentShape(.circle)
         }
         .buttonStyle(.plain)

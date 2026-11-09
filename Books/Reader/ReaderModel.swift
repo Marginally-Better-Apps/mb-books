@@ -121,7 +121,8 @@ final class ReaderModel {
     var effectivePageTurn: PageTurnStyle { isFixedLayout && preferences.pageTurn == .scroll ? .slide : preferences.pageTurn }
     var chapterTitle: String? { publication.chapterTitle(forSpineIndex: location.spineIndex) }
 
-    var progressPercent: Int { Int((location.totalProgression * 100).rounded()) }
+    /// Rounded like Home's progress; a book open in the reader counts as started.
+    var progressPercent: Int { Book.wholePercent(location.totalProgression, opened: true) }
 
     /// "12 of 340", estimated from the current chapter's page density for reflowable books.
     var pageLabel: String {

@@ -27,6 +27,8 @@ final class ChapterView: UIView {
     /// Whether the document's own writing direction is right to left.
     private(set) var isRTL = false
     var placement: Placement?
+    /// Handles VoiceOver's three-finger swipes that the page itself doesn't scroll for, such as turning pages.
+    var accessibilityScrollHandler: ((UIAccessibilityScrollDirection) -> Bool)?
     private var loadingURL: URL?
     private var navigation: WKNavigation?
     private var waiters: [CheckedContinuation<Bool, Never>] = []
@@ -63,6 +65,11 @@ final class ChapterView: UIView {
             accessibilityElementsHidden = !isActive
             webView.setAllMediaPlaybackSuspended(!isActive)
         }
+    }
+
+    override func accessibilityScroll(_ direction: UIAccessibilityScrollDirection) -> Bool {
+        guard isActive, let accessibilityScrollHandler else { return super.accessibilityScroll(direction) }
+        return accessibilityScrollHandler(direction)
     }
 
     /// Lets the web view scroll (scroll mode and rolls) or keeps it still for page turns.

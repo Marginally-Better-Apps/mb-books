@@ -69,6 +69,8 @@ final class ReaderViewController: UIViewController {
     private var isSpeechNavigation = false
     /// Orders read-aloud marks, so `reader.js` can drop any that arrive after a newer one.
     private var speechSequence = 0
+    /// Set when VoiceOver turns the page, so the new page is announced once it reports where it is.
+    private var announcesPage = false
 
     init(model: ReaderModel) {
         self.model = model
@@ -110,6 +112,13 @@ final class ReaderViewController: UIViewController {
         updateBackground()
         model.navigator = self
         model.speechFollower = self
+        NotificationCenter.default.addObserver(
+            self, selector: #selector(reduceMotionDidChange),
+            name: UIAccessibility.reduceMotionStatusDidChangeNotification, object: nil)
+    }
+
+    @objc private func reduceMotionDidChange() {
+        installPresenter()
     }
 
     override func viewDidLayoutSubviews() {
@@ -170,6 +179,7 @@ final class ReaderViewController: UIViewController {
             },
             listen: { [weak self] in self?.model.startListening(fromSelection: true) })
         chapter.webView.scrollView.panGestureRecognizer.addTarget(self, action: #selector(handleScrollPan(_:)))
+        chapter.accessibilityScrollHandler = { [weak self] direction in self?.accessibilityTurn(direction) ?? false }
         return chapter
     }
 
@@ -256,6 +266,8 @@ final class ReaderViewController: UIViewController {
 
     private var desiredPresenterKind: PresenterKind {
         if publication.layout == .roll || model.isScrollMode { return .push }
+        // Reduce Motion cross-fades pages instead; the chosen style comes back when it's turned off.
+        if UIAccessibility.isReduceMotionEnabled { return .fade }
         switch model.preferences.pageTurn {
         case .curl: return .curl(mirrored: publication.readingProgression == .rtl)
         case .fade: return .fade
@@ -627,6 +639,7 @@ final class ReaderViewController: UIViewController {
                 to: Locator(spineIndex: first),
                 page: isSpread ? spreadPlan.spreadIndex(containing: first) : 0,
                 pageCount: isSpread ? spreadPlan.spreads.count : 1)
+            announcePageIfNeeded()
         case .roll:
             if let location = try? await call("return MB.rollLocation()", in: chapter) as? [String: Any], chapter === current {
                 didRelocate(location)
@@ -640,6 +653,7 @@ final class ReaderViewController: UIViewController {
         let locator = Locator(
             spineIndex: spineIndex, progression: location.double("progression"), cfi: location["cfi"] as? String)
         model.didRelocate(to: locator, page: location.int("page"), pageCount: max(1, location.int("pageCount")))
+        announcePageIfNeeded()
     }
 
     /// Fonts, images, or settings changed the layout: keep the reader's place, or a spare's first or last page.
@@ -744,6 +758,26 @@ final class ReaderViewController: UIViewController {
             let delta = (scrollView.bounds.height - 120) * (forward ? 1 : -1)
             scrollView.setContentOffset(CGPoint(x: 0, y: min(maxY, max(0, y + delta))), animated: true)
         }
+    }
+
+    /// VoiceOver's three-finger swipes turn pages: left or up for the next page, right or down for the previous.
+    private func accessibilityTurn(_ direction: UIAccessibilityScrollDirection) -> Bool {
+        switch direction {
+        case .left: turn(toward: .right)
+        case .right: turn(toward: .left)
+        case .down, .next: advance(forward: true)
+        case .up, .previous: advance(forward: false)
+        @unknown default: return false
+        }
+        announcesPage = true
+        return true
+    }
+
+    /// Tells VoiceOver where a three-finger swipe landed, once the new page reports its position.
+    private func announcePageIfNeeded() {
+        guard announcesPage else { return }
+        announcesPage = false
+        UIAccessibility.post(notification: .pageScrolled, argument: model.pageLabel)
     }
 
     private func runQueuedTurn() {

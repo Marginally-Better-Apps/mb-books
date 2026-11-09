@@ -7,29 +7,42 @@ struct ReaderView: View {
 
     @Environment(\.modelContext) private var context
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.colorScheme) private var colorScheme
     @Environment(LibraryStore.self) private var library
     @State private var model: ReaderModel?
     @State private var failure: String?
+    @State private var showsSpinner = false
+    /// The saved theme, so the book opens on its own page color rather than flashing white first.
+    @State private var theme = ReaderPreferences.load().theme
 
     var body: some View {
-        Group {
-            if let model {
-                ReaderScreen(model: model)
-            } else if let failure {
-                ContentUnavailableView {
-                    Label("Can't Open Book", systemImage: "exclamationmark.triangle")
-                } description: {
-                    Text(failure)
-                } actions: {
-                    Button("Close") { dismiss() }.buttonStyle(.glassProminent)
+        if let model {
+            ReaderScreen(model: model)
+        } else {
+            let palette = theme.palette(dark: colorScheme == .dark)
+            Group {
+                if let failure {
+                    ContentUnavailableView {
+                        Label("Can't Open Book", systemImage: "exclamationmark.triangle")
+                    } description: {
+                        Text(failure)
+                    } actions: {
+                        Button("Close") { dismiss() }.buttonStyle(.glassProminent)
+                    }
+                } else if showsSpinner {
+                    ProgressView().controlSize(.large)
                 }
-            } else {
-                ProgressView().controlSize(.large)
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background(palette.backgroundColor)
+            .environment(\.colorScheme, palette.isDark ? .dark : .light)
+            .task { await open() }
+            .task {
+                // Most books open quickly; only show progress for the ones that don't.
+                try? await Task.sleep(for: .milliseconds(300))
+                showsSpinner = true
             }
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(Color(.systemBackground))
-        .task { await open() }
     }
 
     private func open() async {
@@ -61,9 +74,21 @@ private struct ReaderScreen: View {
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @Environment(\.scenePhase) private var scenePhase
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.accessibilityVoiceOverEnabled) private var voiceOverEnabled
     @Environment(OrientationLock.self) private var orientationLock
     @Namespace private var glass
     @State private var isMenuOpen = false
+
+    // Control sizes follow Dynamic Type, capped so the controls stay inside the page margins `ReaderLayout` leaves.
+    @ScaledMetric(relativeTo: .body) private var scaledGlyph: CGFloat = 17
+    @ScaledMetric(relativeTo: .body) private var scaledButton: CGFloat = 30
+    @ScaledMetric(relativeTo: .body) private var scaledMenuButton: CGFloat = 48
+    @ScaledMetric(relativeTo: .body) private var scaledRibbon: CGFloat = 22
+
+    private var glyph: CGFloat { min(scaledGlyph, 22) }
+    private var button: CGFloat { min(scaledButton, 34) }
+    private var menuButton: CGFloat { min(scaledMenuButton, 52) }
 
     var body: some View {
         let palette = model.palette
@@ -73,6 +98,10 @@ private struct ReaderScreen: View {
                 .ignoresSafeArea()
                 .accessibilityIdentifier("reader.content")
             popoverAnchor
+            if model.isScrollMode, model.isChromeVisible {
+                scrollBackdrop
+                    .transition(.opacity)
+            }
             chrome
             if isMenuOpen {
                 Color.black.opacity(0.001)
@@ -84,17 +113,22 @@ private struct ReaderScreen: View {
         .environment(\.colorScheme, palette.isDark ? .dark : .light)
         .statusBarHidden(!model.isChromeVisible)
         .persistentSystemOverlays(model.isChromeVisible ? .automatic : .hidden)
+        // Sheets and popovers are presented apart from the view above, so each takes the theme's appearance itself.
         .sheet(item: $model.sheet) { sheet in
-            switch sheet {
-            case .contents: ContentsView(model: model)
-            case .themes: ThemesView(model: model, isRegularWidth: horizontalSizeClass == .regular)
-            case .search: BookSearchView(model: model)
-            case .listen:
-                if let session = model.listening { ListenSettingsView(session: session) }
+            Group {
+                switch sheet {
+                case .contents: ContentsView(model: model)
+                case .themes: ThemesView(model: model, isRegularWidth: horizontalSizeClass == .regular)
+                case .search: BookSearchView(model: model)
+                case .listen:
+                    if let session = model.listening { ListenSettingsView(session: session) }
+                }
             }
+            .readerColorScheme(model.palette)
         }
         .sheet(item: $model.editingNote) { annotation in
             NoteEditor(annotation: annotation)
+                .readerColorScheme(model.palette)
         }
         .onAppear {
             model.isDarkAppearance = colorScheme == .dark
@@ -105,10 +139,14 @@ private struct ReaderScreen: View {
             if phase == .active { model.startReadingClock() } else { model.stopReadingClock() }
         }
         .onChange(of: model.isChromeVisible) { _, visible in if !visible { setMenu(open: false) } }
+        .onChange(of: model.listening?.failureMessage) { _, message in
+            if let message { AccessibilityNotification.Announcement(message).post() }
+        }
         // While the book is read aloud, the controls step aside after a moment so they don't cover the words being read.
-        .task(id: [model.isChromeVisible, model.listening?.isPlaying == true, isMenuOpen, model.sheet == nil]) {
+        // Not with VoiceOver, though: the controls would vanish from under its focus.
+        .task(id: [model.isChromeVisible, model.listening?.isPlaying == true, isMenuOpen, model.sheet == nil, voiceOverEnabled]) {
             guard model.isChromeVisible, model.listening?.isPlaying == true, !isMenuOpen, model.sheet == nil,
-                  !Self.keepsControlsVisible else { return }
+                  !voiceOverEnabled, !Self.keepsControlsVisible else { return }
             try? await Task.sleep(for: .seconds(4))
             guard !Task.isCancelled else { return }
             model.hideChrome()
@@ -129,6 +167,7 @@ private struct ReaderScreen: View {
                 .popover(item: $model.popover) { popover in
                     ReaderPopoverContent(model: model, popover: popover)
                         .presentationCompactAdaptation(.popover)
+                        .readerColorScheme(model.palette)
                 }
                 .position(x: rect.midX, y: rect.midY)
         }
@@ -138,6 +177,43 @@ private struct ReaderScreen: View {
 
     // MARK: Chrome
 
+    /// Scroll mode runs text under the controls, so while they're up the page color shades it behind them.
+    private var scrollBackdrop: some View {
+        GeometryReader { proxy in
+            let background = model.palette.backgroundColor
+            let top = proxy.safeAreaInsets.top + 64
+            let bottom = proxy.safeAreaInsets.bottom + 64
+            VStack(spacing: 0) {
+                // Solid behind the controls, then fading out below them.
+                LinearGradient(stops: [
+                    .init(color: background, location: 0),
+                    .init(color: background, location: (top - 28) / top),
+                    .init(color: background.opacity(0), location: 1),
+                ], startPoint: .top, endPoint: .bottom)
+                .frame(height: top)
+                Spacer(minLength: 0)
+                LinearGradient(stops: [
+                    .init(color: background.opacity(0), location: 0),
+                    .init(color: background, location: 28 / bottom),
+                    .init(color: background, location: 1),
+                ], startPoint: .top, endPoint: .bottom)
+                .frame(height: bottom)
+            }
+            .ignoresSafeArea()
+        }
+        .allowsHitTesting(false)
+        .accessibilityHidden(true)
+    }
+
+    private var buttonTransition: AnyTransition {
+        reduceMotion ? .opacity : .opacity.combined(with: .scale(scale: 0.8))
+    }
+
+    /// Whether the listening controls sit in the bottom row, in place of the page label.
+    private var isListenBarDocked: Bool {
+        model.listening?.isActive == true && model.isChromeVisible && !isMenuOpen
+    }
+
     private var chrome: some View {
         VStack(spacing: 0) {
             HStack(alignment: .center) {
@@ -146,42 +222,49 @@ private struct ReaderScreen: View {
                         dismiss()
                     } label: {
                         Image(systemName: "xmark")
-                            .font(.system(size: 17, weight: .semibold))
-                            .frame(width: 30, height: 30)
+                            .font(.system(size: glyph, weight: .semibold))
+                            .frame(width: button, height: button)
                     }
                     .buttonStyle(.glass)
                     .buttonBorderShape(.circle)
                     .accessibilityLabel("Close Book")
                     .accessibilityIdentifier("reader.close")
-                    .transition(.opacity.combined(with: .scale(scale: 0.8)))
+                    .transition(buttonTransition)
                 }
                 Spacer()
                 if model.isChromeVisible {
-                    Text(model.book.title)
-                        .font(.footnote.weight(.semibold))
-                        .foregroundStyle(model.palette.secondaryColor)
-                        .lineLimit(1)
-                        .frame(maxWidth: 240)
-                        .transition(.opacity)
+                    if let session = model.listening, session.isActive, !session.isFollowing {
+                        returnToNarrationButton(session)
+                            .transition(.opacity)
+                    } else {
+                        Text(model.book.title)
+                            .font(.footnote.weight(.semibold))
+                            .foregroundStyle(model.palette.secondaryColor)
+                            .lineLimit(1)
+                            .frame(maxWidth: 240)
+                            .transition(.opacity)
+                    }
                 }
                 Spacer()
                 if model.isChromeVisible {
                     listenButton
                         .accessibilityLabel(model.isListening ? "Listening Options" : "Listen")
                         .accessibilityIdentifier("reader.listen")
-                        .transition(.opacity.combined(with: .scale(scale: 0.8)))
+                        .transition(buttonTransition)
                 } else {
-                    Color.clear.frame(width: 44, height: 44)
+                    Color.clear.frame(width: button + 14, height: button + 14)
                 }
             }
+            // The menu's bookmark button shows the state while the controls are up; the ribbon would cover them.
             .overlay(alignment: .topTrailing) {
-                if model.isBookmarked {
+                if model.isBookmarked, !model.isChromeVisible {
                     Image(systemName: "bookmark.fill")
-                        .font(.system(size: 22))
-                        .foregroundStyle(.red)
+                        .font(.system(size: min(scaledRibbon, 28)))
+                        .foregroundStyle(.tint)
                         .padding(.trailing, 6)
                         .offset(y: -10)
                         .accessibilityLabel("Bookmarked")
+                        .transition(.opacity)
                 }
             }
             .padding(.horizontal, 16)
@@ -192,7 +275,7 @@ private struct ReaderScreen: View {
             HStack {
                 Color.clear.frame(width: 44, height: 44)
                 Spacer()
-                if model.isChromeVisible {
+                if model.isChromeVisible, !isListenBarDocked {
                     Button {
                         model.showsPagesLeft.toggle()
                     } label: {
@@ -213,6 +296,7 @@ private struct ReaderScreen: View {
             .padding(.bottom, 4)
         }
         .animation(.smooth(duration: 0.25), value: model.isChromeVisible)
+        .animation(.smooth(duration: 0.25), value: model.listening?.isFollowing)
     }
 
     /// Tinted while the book is read aloud, so it's clear the button now opens the listening options.
@@ -222,8 +306,8 @@ private struct ReaderScreen: View {
             if model.isListening { model.sheet = .listen } else { model.startListening() }
         } label: {
             Image(systemName: "headphones")
-                .font(.system(size: 17, weight: .semibold))
-                .frame(width: 30, height: 30)
+                .font(.system(size: glyph, weight: .semibold))
+                .frame(width: self.button, height: self.button)
         }
         .buttonBorderShape(.circle)
         if model.isListening {
@@ -233,21 +317,42 @@ private struct ReaderScreen: View {
         }
     }
 
+    /// Takes the title's place after the reader pages away from the narration.
+    private func returnToNarrationButton(_ session: ListeningSession) -> some View {
+        Button {
+            session.returnToNarration()
+        } label: {
+            Label("Return to Narration", systemImage: "arrow.uturn.backward")
+                .font(.footnote.weight(.semibold))
+                .lineLimit(1)
+                .minimumScaleFactor(0.7)
+                .frame(minHeight: button)
+        }
+        .buttonStyle(.glass)
+        .buttonBorderShape(.capsule)
+        .accessibilityIdentifier("listen.return")
+    }
+
     private var menuLayer: some View {
-        VStack {
+        VStack(spacing: 8) {
             Spacer()
-            if let session = model.listening, session.isActive, model.isChromeVisible, !isMenuOpen {
-                ListenBar(session: session) { model.sheet = .listen }
-                    .padding(.bottom, 4)
-                    .transition(.move(edge: .bottom).combined(with: .opacity))
+            if let session = model.listening, let message = session.failureMessage {
+                ListeningFailureBanner(message: message, retry: { model.startListening() }, dismiss: { model.stopListening() })
+                    .padding(.horizontal, 16)
+                    .transition(reduceMotion ? .opacity : .move(edge: .bottom).combined(with: .opacity))
             }
-            HStack {
-                Spacer()
+            HStack(spacing: 8) {
+                if isListenBarDocked, let session = model.listening {
+                    ListenBar(session: session)
+                        .transition(reduceMotion ? .opacity : .move(edge: .bottom).combined(with: .opacity))
+                }
+                Spacer(minLength: 0)
                 GlassEffectContainer(spacing: 16) {
                     if isMenuOpen {
                         ReaderMenu(model: model, close: { setMenu(open: false) })
                             .glassEffect(.regular, in: .rect(cornerRadius: 28))
                             .glassEffectID("menu", in: glass)
+                            .accessibilityAction(.escape) { setMenu(open: false) }
                     } else if !model.isChromeVisible, let session = model.listening, session.isActive {
                         ListenPill(session: session)
                     } else if model.isChromeVisible {
@@ -255,8 +360,8 @@ private struct ReaderScreen: View {
                             setMenu(open: true)
                         } label: {
                             Image(systemName: "list.bullet")
-                                .font(.system(size: 18, weight: .semibold))
-                                .frame(width: 48, height: 48)
+                                .font(.system(size: glyph + 1, weight: .semibold))
+                                .frame(width: menuButton, height: menuButton)
                                 .contentShape(.circle)
                         }
                         .buttonStyle(.plain)
@@ -268,12 +373,64 @@ private struct ReaderScreen: View {
                 }
             }
             .padding(.horizontal, 16)
-            .padding(.bottom, 8)
+            .padding(.bottom, 4)
         }
+        .animation(.smooth(duration: 0.25), value: isListenBarDocked)
+        .animation(.smooth(duration: 0.25), value: model.listening?.failureMessage)
     }
 
     private func setMenu(open: Bool) {
-        withAnimation(.bouncy(duration: 0.4)) { isMenuOpen = open }
+        withAnimation(reduceMotion ? .smooth(duration: 0.25) : .bouncy(duration: 0.4)) { isMenuOpen = open }
+    }
+}
+
+/// Why reading aloud stopped, with a way to try again.
+private struct ListeningFailureBanner: View {
+    let message: String
+    let retry: () -> Void
+    let dismiss: () -> Void
+
+    var body: some View {
+        HStack(spacing: 12) {
+            Image(systemName: "exclamationmark.triangle.fill")
+                .symbolRenderingMode(.multicolor)
+                .accessibilityHidden(true)
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Can't Read Aloud")
+                    .font(.subheadline.weight(.semibold))
+                Text(message)
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            Button("Try Again", action: retry)
+                .font(.subheadline.weight(.semibold))
+                .buttonStyle(.glassProminent)
+                .accessibilityIdentifier("listen.retry")
+            Button(action: dismiss) {
+                Image(systemName: "xmark")
+                    .font(.subheadline.weight(.semibold))
+                    .frame(width: 32, height: 32)
+                    .contentShape(.rect)
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Dismiss")
+            .accessibilityIdentifier("listen.dismissFailure")
+        }
+        .padding(.leading, 16)
+        .padding(.trailing, 8)
+        .padding(.vertical, 10)
+        .frame(maxWidth: 520)
+        .glassEffect(.regular, in: .rect(cornerRadius: 24))
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("listen.failure")
+    }
+}
+
+private extension View {
+    /// The reading theme's light or dark appearance, for views presented from the reader.
+    func readerColorScheme(_ palette: ThemePalette) -> some View {
+        environment(\.colorScheme, palette.isDark ? .dark : .light)
     }
 }
 
@@ -284,6 +441,9 @@ private struct ReaderMenu: View {
 
     @Environment(LibraryStore.self) private var library
     @Environment(OrientationLock.self) private var orientationLock
+    @ScaledMetric(relativeTo: .body) private var width: CGFloat = 290
+    @ScaledMetric(relativeTo: .body) private var iconSize: CGFloat = 18
+    @State private var bookmarkToggles = 0
 
     var body: some View {
         VStack(spacing: 0) {
@@ -309,16 +469,19 @@ private struct ReaderMenu: View {
                 Divider().frame(height: 40)
                 Button {
                     model.toggleBookmark()
+                    bookmarkToggles += 1
                 } label: {
                     iconLabel(model.isBookmarked ? "bookmark.fill" : "bookmark",
                               model.isBookmarked ? "Remove Bookmark" : "Bookmark")
                 }
                 .accessibilityIdentifier("reader.bookmark")
+                .sensoryFeedback(.impact(weight: .light), trigger: bookmarkToggles)
             }
             .buttonStyle(.plain)
             .padding(.vertical, 6)
         }
-        .frame(width: 290)
+        // Grows with Dynamic Type, but never wider than the screen.
+        .containerRelativeFrame(.horizontal) { length, _ in min(width, 480, length - 32) }
         .padding(.vertical, 6)
     }
 
@@ -346,7 +509,7 @@ private struct ReaderMenu: View {
 
     private func iconLabel(_ systemImage: String, _ label: LocalizedStringKey) -> some View {
         Image(systemName: systemImage)
-            .font(.system(size: 18, weight: .medium))
+            .font(.system(size: min(iconSize, 26), weight: .medium))
             .frame(maxWidth: .infinity, minHeight: 40)
             .contentShape(.rect)
             .accessibilityLabel(label)

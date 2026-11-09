@@ -4,7 +4,7 @@ import UIKit
 struct ReaderLayout: Equatable {
     /// The longest comfortable line, in points at the default font size and margins. On wide
     /// screens the margins grow so lines don't get longer than this.
-    static let readableMeasure: CGFloat = 680
+    static let readableMeasure: CGFloat = 600
 
     let top: CGFloat
     let bottom: CGFloat
@@ -15,17 +15,22 @@ struct ReaderLayout: Equatable {
     ///   - margins: The theme's margin setting, as a multiple of the default.
     ///   - scrolls: Whether the book is in scroll mode rather than paginated.
     init(size: CGSize, safeArea: UIEdgeInsets, margins: Double, fontScale: Double, scrolls: Bool, allowsColumns: Bool) {
-        let isWide = size.width >= 600
+        // A large screen, such as an iPad, rather than a phone turned sideways.
+        let isWide = min(size.width, size.height) >= 600
         let landscape = size.width > size.height
         columns = allowsColumns && landscape && size.width >= 700 && !scrolls ? 2 : 1
-        let margin = (isWide ? 52 : 24) * margins + max(safeArea.left, safeArea.right)
+        // `reader.js` pads both sides of every column by `side`, so the margin clears the safe area rather than
+        // adding to it; added, the Dynamic Island's inset would also double the gutter between two columns.
+        let margin = max((isWide ? 52 : 24) * margins, max(safeArea.left, safeArea.right) + 12 * margins)
         // Wider margins narrow the measure too, so the setting still matters where lines are capped.
         let measure = Self.readableMeasure * max(1, fontScale) / max(margins, 0.1)
         let columnWidth = size.width / CGFloat(columns)
         side = max(margin, (columnWidth - measure) / 2)
-        // Scroll mode runs text nearly to the edges; the first and last lines still rest clear of the thin fades.
-        top = safeArea.top + (scrolls ? 12 : (isWide ? 52 : 40))
-        bottom = safeArea.bottom + (scrolls ? 20 : (isWide ? 44 : 34))
+        // Pages keep their text clear of the controls above and below it (44–52 pt buttons, 4 pt from the safe area).
+        // Scroll mode runs text nearly to the edges; the first and last lines still rest clear of the thin fades,
+        // and the reader shades the text behind the controls while they're up.
+        top = safeArea.top + (scrolls ? 12 : (isWide ? 68 : 56))
+        bottom = safeArea.bottom + (scrolls ? 20 : (isWide ? 68 : 56))
     }
 
     /// Where scroll mode's mask fades text out at the very edges of the screen, so it reads as
