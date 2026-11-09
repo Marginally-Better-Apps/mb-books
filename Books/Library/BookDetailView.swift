@@ -42,12 +42,13 @@ struct BookDetailView: View {
                         Button {
                             book.wantToRead.toggle()
                         } label: {
-                            Image(systemName: book.wantToRead ? "checkmark" : "plus")
+                            Image(systemName: book.wantToRead ? "bookmark.fill" : "bookmark")
                                 .font(.headline)
                                 .frame(width: 44, height: 44)
                         }
                         .buttonStyle(.glass)
                         .accessibilityLabel(book.wantToRead ? "Remove from Want to Read" : "Want to Read")
+                        .sensoryFeedback(.selection, trigger: book.wantToRead)
                     }
                     .padding(.horizontal)
 
@@ -75,7 +76,8 @@ struct BookDetailView: View {
             }
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
-                    Button("Done", systemImage: "xmark") { dismiss() }
+                    Button(role: .close) { dismiss() }
+                        .accessibilityIdentifier("details.close")
                 }
             }
         }

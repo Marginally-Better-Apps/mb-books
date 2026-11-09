@@ -106,7 +106,7 @@ private struct ContinueCarousel: View {
                         }
                         .buttonStyle(.plain)
                         .bookInteractions(book)
-                        .accessibilityLabel("\(book.title), \(book.percentRead.formatted(.percent))")
+                        .bookAccessibility(book)
                         .accessibilityIdentifier("continue.\(book.title)")
                     }
                 }
@@ -153,7 +153,7 @@ private struct ReadingGoalsSection: View {
                     }
                 }
                 .accessibilityIdentifier("goals.today")
-                GoalCard(title: "This Year", value: finishedThisYear, goal: "of \(yearlyGoal) books") {
+                GoalCard(title: "This Year", value: finishedThisYear, goal: "of ^[\(yearlyGoal) book](inflect: true)") {
                     EmptyView()
                 } detail: {
                     BooksReadMeter(finished: finishedThisYear, goal: yearlyGoal)
@@ -164,6 +164,8 @@ private struct ReadingGoalsSection: View {
             .fixedSize(horizontal: false, vertical: true)
             .padding(.horizontal, 20)
         }
+        // A tap of success the moment today's goal is met.
+        .sensoryFeedback(.success, trigger: todayMinutes >= dailyGoal) { wasMet, isMet in !wasMet && isMet }
     }
 }
 
@@ -285,7 +287,7 @@ struct BookShelf: View {
                         }
                         .buttonStyle(.plain)
                         .bookInteractions(book)
-                        .accessibilityLabel(book.title)
+                        .bookAccessibility(book)
                     }
                 }
                 .scrollTargetLayout()

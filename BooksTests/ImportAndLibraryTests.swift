@@ -144,9 +144,12 @@ final class BookImporterTests: XCTestCase {
         let url = try Fixtures.write(SampleBook.make())
 
         let first = await store.importBooks(from: [url], into: context)
+        XCTAssertNil(store.importNotice, "A single new book needs no notice")
         let second = await store.importBooks(from: [url], into: context)
         XCTAssertEqual(first.count, 1)
         XCTAssertEqual(first.first?.id, second.first?.id, "Re-importing returns the existing book")
+        XCTAssertEqual(store.importNotice?.title, "Already in Your Library")
+        XCTAssertFalse(store.isImporting)
         XCTAssertEqual(try context.fetchCount(FetchDescriptor<Book>()), 1)
         XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: storage.root.path).count, 1)
 
@@ -156,5 +159,39 @@ final class BookImporterTests: XCTestCase {
         store.delete([book], from: context)
         XCTAssertEqual(try context.fetchCount(FetchDescriptor<Book>()), 0)
         XCTAssertFalse(FileManager.default.fileExists(atPath: storage.folder(for: book.id).path))
+    }
+
+    @MainActor
+    func testLibraryStoreCollectsEveryFailureInPlainLanguage() async throws {
+        let container = try ModelContainer(
+            for: Book.self, BookCollection.self, Annotation.self, ReadingDay.self,
+            configurations: ModelConfiguration(isStoredInMemoryOnly: true))
+        let store = LibraryStore(storage: BookStorage(root: try Fixtures.temporaryDirectory()))
+        let notZip = try Fixtures.write(Data("plain text".utf8), named: "notes.epub")
+        var zip = ZipWriter()
+        try zip.add("mimetype", "application/epub+zip", compress: false)
+        let noContainer = try Fixtures.write(zip.finish(), named: "empty.epub")
+        let book = try Fixtures.write(SampleBook.make())
+
+        let imported = await store.importBooks(from: [notZip, noContainer, book], into: container.mainContext)
+        XCTAssertEqual(imported.count, 1)
+        XCTAssertEqual(store.importFailures.map(\.fileName), ["notes.epub", "empty.epub"], "Every failure is kept, not just the last")
+        XCTAssertEqual(store.importFailures.map(\.message), ["This file isn't a valid EPUB book.", "This file isn't a valid EPUB book."])
+
+        let summary = LibraryStore.failureSummary(store.importFailures)
+        XCTAssertEqual(summary.title, "Couldn’t Add 2 Books")
+        XCTAssertTrue(summary.message.contains("notes.epub: This file isn't a valid EPUB book."))
+        XCTAssertEqual(LibraryStore.failureSummary(Array(store.importFailures.prefix(1))).title, "Couldn’t Add “notes.epub”")
+        XCTAssertEqual(store.importNotice?.title, "Added 1 Book", "Multi-file imports confirm what was added")
+    }
+
+    @MainActor
+    func testImportNoticesAgreeInNumber() {
+        XCTAssertNil(LibraryStore.notice(fileCount: 1, added: 1, duplicates: 0))
+        XCTAssertNil(LibraryStore.notice(fileCount: 2, added: 0, duplicates: 0))
+        XCTAssertEqual(LibraryStore.notice(fileCount: 3, added: 3, duplicates: 0)?.title, "Added 3 Books")
+        XCTAssertEqual(LibraryStore.notice(fileCount: 3, added: 2, duplicates: 1)?.detail, "1 Book Already in Your Library")
+        XCTAssertEqual(LibraryStore.notice(fileCount: 2, added: 0, duplicates: 2)?.title, "2 Books Already in Your Library")
+        XCTAssertEqual(String(inflecting: "Remove ^[\(1) Book](inflect: true)?"), "Remove 1 Book?")
     }
 }
