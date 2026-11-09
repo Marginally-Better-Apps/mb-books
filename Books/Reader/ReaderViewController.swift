@@ -781,13 +781,16 @@ final class ReaderViewController: UIViewController {
         }
     }
 
-    /// VoiceOver's three-finger swipes turn pages: left or up for the next page, right or down for the previous.
+    /// VoiceOver's three-finger swipes turn pages. The direction is the swipe's: up for the next page and down for
+    /// the previous, like scrolling a document. Sideways, a swipe left brings in the page on the right, which is the
+    /// next one in left-to-right books, and like the arrow keys, it scrolls a screen rather than leaving the chapter
+    /// in scroll mode.
     private func accessibilityTurn(_ direction: UIAccessibilityScrollDirection) -> Bool {
         switch direction {
-        case .left: turn(toward: .right)
-        case .right: turn(toward: .left)
-        case .down, .next: advance(forward: true)
-        case .up, .previous: advance(forward: false)
+        case .up, .next: advance(forward: true)
+        case .down, .previous: advance(forward: false)
+        case .left: advance(forward: !isRTLProgression)
+        case .right: advance(forward: isRTLProgression)
         @unknown default: return false
         }
         announcesPage = true

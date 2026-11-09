@@ -36,6 +36,9 @@ struct ListenBar: View {
             }
             .buttonStyle(.plain)
             .accessibilityLabel(session.isPlaying ? "Pause" : "Play")
+            .accessibilityShowsLargeContentViewer {
+                Label(session.isPlaying ? "Pause" : "Play", systemImage: session.isPlaying ? "pause.fill" : "play.fill")
+            }
             .accessibilityIdentifier("listen.playPause")
             control("forward.fill", label: "Next Sentence", id: "listen.forward") { session.skip(by: 1) }
             Menu {
@@ -53,9 +56,15 @@ struct ListenBar: View {
                     .frame(width: side + 4, height: side)
                     .contentShape(.rect)
             }
+            // Primary like the buttons beside it, rather than the accent a menu takes by default.
+            .tint(.primary)
             .accessibilityLabel("Speed")
+            .accessibilityShowsLargeContentViewer {
+                Label("Speed \(Self.speedLabel(session.preferences.speed))", systemImage: "gauge.with.dots.needle.67percent")
+            }
             .accessibilityIdentifier("listen.speed")
-            control("xmark", label: "Stop Listening", id: "listen.stop") { session.stop() }
+            // Not an X: that's Close Book, just above.
+            control("stop.fill", label: "Stop Listening", id: "listen.stop") { session.stop() }
         }
         .padding(.horizontal, 8)
         .glassEffect(.regular.interactive(), in: .capsule)
@@ -70,6 +79,8 @@ struct ListenBar: View {
         }
         .buttonStyle(.plain)
         .accessibilityLabel(label)
+        // The glyphs stop growing with Dynamic Type; the large content viewer shows them bigger instead.
+        .accessibilityShowsLargeContentViewer { Label(label, systemImage: systemImage) }
         .accessibilityIdentifier(id)
     }
 
@@ -104,6 +115,9 @@ struct ListenPill: View {
         .buttonStyle(.plain)
         .glassEffect(.regular.interactive(), in: .circle)
         .accessibilityLabel(session.isPlaying ? "Pause" : "Play")
+        .accessibilityShowsLargeContentViewer {
+            Label(session.isPlaying ? "Pause" : "Play", systemImage: session.isPlaying ? "pause.fill" : "play.fill")
+        }
         .accessibilityIdentifier("listen.pill")
     }
 }

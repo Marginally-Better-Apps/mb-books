@@ -181,28 +181,30 @@ private struct ReaderScreen: View {
     private var scrollBackdrop: some View {
         GeometryReader { proxy in
             let background = model.palette.backgroundColor
-            let top = proxy.safeAreaInsets.top + 64
-            let bottom = proxy.safeAreaInsets.bottom + 64
+            // Solid just past the controls (4 pt from the safe area, then a 44–52 pt button), then fading out.
+            let top = proxy.safeAreaInsets.top + 56
+            let bottom = proxy.safeAreaInsets.bottom + 60
+            let fade: CGFloat = 26
             VStack(spacing: 0) {
-                // Solid behind the controls, then fading out below them.
-                LinearGradient(stops: [
-                    .init(color: background, location: 0),
-                    .init(color: background, location: (top - 28) / top),
-                    .init(color: background.opacity(0), location: 1),
-                ], startPoint: .top, endPoint: .bottom)
-                .frame(height: top)
+                LinearGradient(stops: Self.backdropStops(background, solid: top, fade: fade), startPoint: .top, endPoint: .bottom)
+                    .frame(height: top + fade)
                 Spacer(minLength: 0)
-                LinearGradient(stops: [
-                    .init(color: background.opacity(0), location: 0),
-                    .init(color: background, location: 28 / bottom),
-                    .init(color: background, location: 1),
-                ], startPoint: .top, endPoint: .bottom)
-                .frame(height: bottom)
+                LinearGradient(stops: Self.backdropStops(background, solid: bottom, fade: fade), startPoint: .bottom, endPoint: .top)
+                    .frame(height: bottom + fade)
             }
             .ignoresSafeArea()
         }
         .allowsHitTesting(false)
         .accessibilityHidden(true)
+    }
+
+    /// Solid for `solid` points, then easing out over `fade`. It stays nearly opaque where it meets the solid part,
+    /// so a line cut by that edge doesn't leave the tops of its letters showing along it.
+    private static func backdropStops(_ color: Color, solid: CGFloat, fade: CGFloat) -> [Gradient.Stop] {
+        let total = solid + fade
+        return [Gradient.Stop(color: color, location: 0)] + [0, 0.25, 0.5, 0.75, 1].map { (t: CGFloat) in
+            Gradient.Stop(color: color.opacity(1 - t * t), location: (solid + t * fade) / total)
+        }
     }
 
     private var buttonTransition: AnyTransition {
@@ -228,27 +230,23 @@ private struct ReaderScreen: View {
                     .buttonStyle(.glass)
                     .buttonBorderShape(.circle)
                     .accessibilityLabel("Close Book")
+                    // The control sizes are capped; the large content viewer shows them bigger instead.
+                    .accessibilityShowsLargeContentViewer { Label("Close Book", systemImage: "xmark") }
                     .accessibilityIdentifier("reader.close")
                     .transition(buttonTransition)
                 }
                 Spacer()
                 if model.isChromeVisible {
-                    if let session = model.listening, session.isActive, !session.isFollowing {
-                        returnToNarrationButton(session)
-                            .transition(.opacity)
-                    } else {
-                        Text(model.book.title)
-                            .font(.footnote.weight(.semibold))
-                            .foregroundStyle(model.palette.secondaryColor)
-                            .lineLimit(1)
-                            .frame(maxWidth: 240)
-                            .transition(.opacity)
-                    }
+                    titleSlot
+                        .transition(.opacity)
                 }
                 Spacer()
                 if model.isChromeVisible {
                     listenButton
                         .accessibilityLabel(model.isListening ? "Listening Options" : "Listen")
+                        .accessibilityShowsLargeContentViewer {
+                            Label(model.isListening ? "Listening Options" : "Listen", systemImage: "headphones")
+                        }
                         .accessibilityIdentifier("reader.listen")
                         .transition(buttonTransition)
                 } else {
@@ -275,19 +273,10 @@ private struct ReaderScreen: View {
             HStack {
                 Color.clear.frame(width: 44, height: 44)
                 Spacer()
+                // While the listening bar takes this row, the page position moves up under the title.
                 if model.isChromeVisible, !isListenBarDocked {
-                    Button {
-                        model.showsPagesLeft.toggle()
-                    } label: {
-                        Text(model.showsPagesLeft && !model.isFixedLayout && !model.isScrollMode
-                             ? model.pagesLeftLabel : model.pageLabel)
-                            .font(.footnote.monospacedDigit())
-                            .foregroundStyle(model.palette.secondaryColor)
-                            .contentTransition(.numericText())
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityIdentifier("reader.pageLabel")
-                    .transition(.opacity)
+                    pageLabel(.footnote)
+                        .transition(.opacity)
                 }
                 Spacer()
                 Color.clear.frame(width: 44, height: 44)
@@ -297,6 +286,87 @@ private struct ReaderScreen: View {
         }
         .animation(.smooth(duration: 0.25), value: model.isChromeVisible)
         .animation(.smooth(duration: 0.25), value: model.listening?.isFollowing)
+        .animation(.smooth(duration: 0.25), value: model.searchReturn == nil)
+        .animation(.smooth(duration: 0.25), value: isListenBarDocked)
+    }
+
+    /// The book's title, or a way back once the reader pages away: to the narration, or else to the search results.
+    /// While the listening bar is docked, the page position sits underneath.
+    @ViewBuilder
+    private var titleSlot: some View {
+        if let session = model.listening, session.isActive, !session.isFollowing {
+            withPageCaption { compact in
+                capsuleButton("Return to Narration", systemImage: "arrow.uturn.backward", compact: compact) {
+                    session.returnToNarration()
+                }
+                .accessibilityIdentifier("listen.return")
+            }
+        } else if model.searchReturn != nil {
+            withPageCaption { compact in
+                capsuleButton("Results", systemImage: "chevron.backward", compact: compact) {
+                    model.returnToSearchResults()
+                }
+                .accessibilityLabel("Back to Search Results")
+                .accessibilityIdentifier("reader.backToResults")
+            }
+        } else {
+            VStack(spacing: 1) {
+                Text(model.book.title)
+                    .font(.footnote.weight(.semibold))
+                    .foregroundStyle(model.palette.secondaryColor)
+                    .lineLimit(1)
+                if isListenBarDocked { pageLabel(.caption2) }
+            }
+            .frame(maxWidth: 240)
+        }
+    }
+
+    /// A capsule in the title's place, with the page position under it while the listening bar is docked:
+    /// at full size if both fit in the top row, otherwise with a smaller capsule.
+    @ViewBuilder
+    private func withPageCaption<Capsule: View>(@ViewBuilder _ capsule: (_ compact: Bool) -> Capsule) -> some View {
+        let full = capsule(false)
+        if isListenBarDocked {
+            let compact = capsule(true)
+            ViewThatFits(in: .vertical) {
+                VStack(spacing: 1) { full; pageLabel(.caption2) }
+                VStack(spacing: 1) { compact; pageLabel(.caption2) }
+            }
+            .frame(maxHeight: button + 14)
+        } else {
+            full
+        }
+    }
+
+    private func capsuleButton(_ title: LocalizedStringKey, systemImage: String, compact: Bool,
+                               action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Label(title, systemImage: systemImage)
+                .font(compact ? .caption.weight(.semibold) : .footnote.weight(.semibold))
+                .lineLimit(1)
+                .minimumScaleFactor(0.7)
+                .frame(minHeight: compact ? nil : button)
+        }
+        .buttonStyle(.glass)
+        .buttonBorderShape(.capsule)
+        .controlSize(compact ? .small : .regular)
+    }
+
+    /// "12 of 340", or the pages left in the chapter; tapping switches between them.
+    private func pageLabel(_ font: Font) -> some View {
+        Button {
+            model.showsPagesLeft.toggle()
+        } label: {
+            Text(model.showsPagesLeft && !model.isFixedLayout && !model.isScrollMode
+                 ? model.pagesLeftLabel : model.pageLabel)
+                .font(font.monospacedDigit())
+                .foregroundStyle(model.palette.secondaryColor)
+                .lineLimit(1)
+                .contentTransition(.numericText())
+                .contentShape(.rect)
+        }
+        .buttonStyle(.plain)
+        .accessibilityIdentifier("reader.pageLabel")
     }
 
     /// Tinted while the book is read aloud, so it's clear the button now opens the listening options.
@@ -317,25 +387,15 @@ private struct ReaderScreen: View {
         }
     }
 
-    /// Takes the title's place after the reader pages away from the narration.
-    private func returnToNarrationButton(_ session: ListeningSession) -> some View {
-        Button {
-            session.returnToNarration()
-        } label: {
-            Label("Return to Narration", systemImage: "arrow.uturn.backward")
-                .font(.footnote.weight(.semibold))
-                .lineLimit(1)
-                .minimumScaleFactor(0.7)
-                .frame(minHeight: button)
-        }
-        .buttonStyle(.glass)
-        .buttonBorderShape(.capsule)
-        .accessibilityIdentifier("listen.return")
-    }
-
     private var menuLayer: some View {
         VStack(spacing: 8) {
             Spacer()
+            // A sheet that's up shows its own; the Contents sheet does, while it's open.
+            if model.sheet == nil, model.editingNote == nil, let deleted = model.recentlyDeleted {
+                UndoDeleteBanner(deleted: deleted, undoIdentifier: "reader.undoDelete") { model.undoDelete() }
+                    .padding(.horizontal, 16)
+                    .transition(UndoDeleteBanner.transition(reduceMotion: reduceMotion))
+            }
             if let session = model.listening, let message = session.failureMessage {
                 ListeningFailureBanner(message: message, retry: { model.startListening() }, dismiss: { model.stopListening() })
                     .padding(.horizontal, 16)
@@ -368,6 +428,7 @@ private struct ReaderScreen: View {
                         .glassEffect(.regular.interactive(), in: .circle)
                         .glassEffectID("menu", in: glass)
                         .accessibilityLabel("Reading Menu")
+                        .accessibilityShowsLargeContentViewer { Label("Reading Menu", systemImage: "list.bullet") }
                         .accessibilityIdentifier("reader.menu")
                     }
                 }
@@ -377,6 +438,8 @@ private struct ReaderScreen: View {
         }
         .animation(.smooth(duration: 0.25), value: isListenBarDocked)
         .animation(.smooth(duration: 0.25), value: model.listening?.failureMessage)
+        .animation(.smooth(duration: 0.25), value: model.recentlyDeleted)
+        .animation(.smooth(duration: 0.25), value: model.sheet == nil)
     }
 
     private func setMenu(open: Bool) {
@@ -424,6 +487,35 @@ private struct ListeningFailureBanner: View {
         .glassEffect(.regular, in: .rect(cornerRadius: 24))
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("listen.failure")
+    }
+}
+
+/// Offers back a highlight or bookmark for a few seconds after it's deleted, in the reader or the Contents sheet.
+struct UndoDeleteBanner: View {
+    let deleted: DeletedAnnotation
+    let undoIdentifier: String
+    let undo: () -> Void
+
+    /// Slides up from the bottom, or only fades with Reduce Motion.
+    static func transition(reduceMotion: Bool) -> AnyTransition {
+        reduceMotion ? .opacity : .move(edge: .bottom).combined(with: .opacity)
+    }
+
+    var body: some View {
+        HStack {
+            Text(deleted.kind == .highlight ? "Highlight Deleted" : "Bookmark Deleted")
+                .font(.subheadline.weight(.medium))
+            Spacer()
+            Button("Undo", action: undo)
+                .font(.subheadline.weight(.semibold))
+                .frame(minWidth: 44, minHeight: 44)
+                .contentShape(.rect)
+                .accessibilityIdentifier(undoIdentifier)
+        }
+        .padding(.horizontal, 20)
+        .frame(maxWidth: 520)
+        .glassEffect(.regular, in: .capsule)
+        .accessibilityElement(children: .contain)
     }
 }
 

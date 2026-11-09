@@ -32,21 +32,29 @@ nonisolated enum BookSearcher {
             let chapter = publication.chapterTitle(forSpineIndex: index)
             let source = indexed.text as NSString
             let noteMarkers = indexed.noteMarkers
+            let boundaries = indexed.blockBoundaries
             var searchRange = NSRange(location: 0, length: source.length)
             var occurrence = 0
             while results.count < maxResults {
                 let found = source.range(of: needle, options: [.caseInsensitive], range: searchRange)
                 guard found.location != NSNotFound else { break }
-                let beforeStart = max(0, found.location - contextLength)
-                let afterEnd = min(source.length, found.location + found.length + contextLength)
+                let matchEnd = NSMaxRange(found)
+                // The context stays inside the match's own heading or paragraph, so a chapter title doesn't run
+                // into the sentence after it. Only the snippet is trimmed; the match's offset is untouched.
+                let blockStart = boundaries.last { $0 <= found.location } ?? 0
+                let blockEnd = boundaries.first { $0 >= matchEnd } ?? source.length
+                let beforeStart = max(found.location - contextLength, blockStart)
+                let afterEnd = min(matchEnd + contextLength, blockEnd)
+                var before = snippet(source, NSRange(location: beforeStart, length: found.location - beforeStart), skipping: noteMarkers)
+                var after = snippet(source, NSRange(location: matchEnd, length: afterEnd - matchEnd), skipping: noteMarkers)
+                if beforeStart == blockStart { before = String(before.drop { $0.isWhitespace }) }
+                if afterEnd == blockEnd { after = String(after.reversed().drop { $0.isWhitespace }.reversed()) }
                 results.append(BookSearchResult(
                     spineIndex: index,
                     chapterTitle: chapter,
-                    before: snippet(source, NSRange(location: beforeStart, length: found.location - beforeStart), skipping: noteMarkers),
+                    before: before,
                     match: source.substring(with: found),
-                    after: snippet(source, NSRange(
-                        location: found.location + found.length, length: afterEnd - found.location - found.length),
-                        skipping: noteMarkers),
+                    after: after,
                     offset: found.location,
                     occurrence: occurrence))
                 occurrence += 1
@@ -63,14 +71,16 @@ nonisolated enum BookSearcher {
     }
 
     /// The body text, plus the UTF-16 ranges of note reference markers ("compass¹") within it, which snippets
-    /// leave out. The text itself keeps them, so offsets still match `reader.js`.
-    static func indexedBodyText(_ data: Data) throws -> (text: String, noteMarkers: [NSRange]) {
+    /// leave out, and the offsets where blocks such as headings and paragraphs start and end, which snippets
+    /// don't cross. The text itself keeps everything, so offsets still match `reader.js`.
+    static func indexedBodyText(_ data: Data) throws -> (text: String, noteMarkers: [NSRange], blockBoundaries: [Int]) {
         let root = try MarkupParser.parse(data)
-        guard let body = root.firstDescendant(named: "body") else { return ("", []) }
+        guard let body = root.firstDescendant(named: "body") else { return ("", [], []) }
         let skipped: Set<String> = ["script", "style", "noscript", "template", "head", "title"]
         var output = ""
         var length = 0
         var noteMarkers: [NSRange] = []
+        var boundaries: Set<Int> = []
         func walk(_ element: MarkupElement) {
             for child in element.children {
                 switch child {
@@ -83,13 +93,24 @@ nonisolated enum BookSearcher {
                     if isNoteMarker(element), length > start {
                         noteMarkers.append(NSRange(location: start, length: length - start))
                     }
+                    if blockElements.contains(element.name) {
+                        boundaries.insert(start)
+                        boundaries.insert(length)
+                    }
                 case .element: continue
                 }
             }
         }
         walk(body)
-        return (output, noteMarkers.sorted { $0.location < $1.location })
+        return (output, noteMarkers.sorted { $0.location < $1.location }, boundaries.sorted())
     }
+
+    /// Elements set on lines of their own, so the text either side of them doesn't read as one sentence.
+    private static let blockElements: Set<String> = [
+        "address", "article", "aside", "blockquote", "br", "caption", "dd", "div", "dl", "dt", "figcaption", "figure",
+        "footer", "h1", "h2", "h3", "h4", "h5", "h6", "header", "hr", "li", "nav", "ol", "p", "pre", "section",
+        "table", "td", "th", "tr", "ul",
+    ]
 
     /// A link to a note: `epub:type="noteref"`, or a linked superscript marker such as "12" or "[3]".
     private static func isNoteMarker(_ element: MarkupElement) -> Bool {

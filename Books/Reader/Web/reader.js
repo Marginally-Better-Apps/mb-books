@@ -20,6 +20,7 @@
     textNodes: null,
     relocateTimer: null,
     layoutTimer: null,
+    layoutPending: false,
   };
 
   // ---------------------------------------------------------------------------
@@ -220,6 +221,7 @@
   }
 
   function relayout(reason) {
+    state.layoutPending = false;
     if (window.innerWidth === 0 || window.innerHeight === 0) return layoutInfo();
     state.textNodes = null;
     applyStyles();
@@ -237,6 +239,7 @@
 
   function scheduleRelayout(reason) {
     clearTimeout(state.layoutTimer);
+    state.layoutPending = true;
     state.layoutTimer = setTimeout(() => relayout(reason), 60);
   }
 
@@ -470,10 +473,27 @@
     return text.replace(/\s+/g, ' ').trim().slice(0, 160);
   }
 
+  /// Puts a page left part-way scrolled back on a page boundary, the nearest one. Page turns always land on one, but
+  /// VoiceOver focus or scrolling an element into view can leave half of two pages showing. Not while text is
+  /// selected (WebKit scrolls to extend it) or a relayout is pending (the reader puts its anchor back after that).
+  /// Returns whether it scrolled; the scroll reports the new page.
+  function snapToPage() {
+    if (!isPaginated() || state.layoutPending) return false;
+    const selected = window.getSelection();
+    if (selected && !selected.isCollapsed) return false;
+    const width = pageWidth();
+    const x = Math.abs(window.scrollX);
+    const maxX = Math.max(0, scroller().scrollWidth - width);
+    const target = Math.min(maxX, Math.round(x / width) * width);
+    if (Math.abs(x - target) <= 1) return false;
+    window.scrollTo(isRTL() ? -target : target, 0);
+    return true;
+  }
+
   function scheduleRelocate() {
     clearTimeout(state.relocateTimer);
     state.relocateTimer = setTimeout(() => {
-      if (!state.ready) return;
+      if (!state.ready || snapToPage()) return;
       const info = location();
       state.anchor = info.cfi;
       post('relocated', info);
@@ -987,6 +1007,8 @@
       if (active === selectionActive) return;
       selectionActive = active;
       post('selection', { active });
+      // A selection may have scrolled the page part-way; it goes back to a page boundary once it's done.
+      if (!active) scheduleRelocate();
     });
     // Styles go in before first paint; layout starts once the DOM exists.
     applyStyles();

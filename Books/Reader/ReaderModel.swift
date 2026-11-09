@@ -54,6 +54,75 @@ enum ReaderSheet: String, Identifiable {
     var id: String { rawValue }
 }
 
+/// A page within a chapter (or, for fixed layouts, a spread in the book), for measuring how far the reader turns.
+struct PagePosition: Equatable {
+    let spineIndex: Int
+    let page: Int
+    let pageCount: Int
+
+    /// Pages turned from here to `other`. Chapters further apart than next door count as far away.
+    func pagesTurned(to other: PagePosition) -> Int {
+        switch other.spineIndex - spineIndex {
+        case 0: abs(other.page - page)
+        case 1: (pageCount - 1 - page) + other.page + 1
+        case -1: page + (other.pageCount - 1 - other.page) + 1
+        default: .max
+        }
+    }
+}
+
+/// The way back to search results after jumping to one.
+struct SearchReturn: Equatable {
+    /// The chapter the result is in.
+    let spineIndex: Int
+    /// Where the result landed, once the reader reports it.
+    var landing: PagePosition?
+    /// Scrolls since the jump, in scroll mode, where there are no pages to count.
+    var scrolls = 0
+}
+
+/// A deleted highlight or bookmark, with enough to put it back as it was, note included.
+struct DeletedAnnotation: Equatable {
+    let id: UUID
+    let kind: Annotation.Kind
+    let created: Date
+    let locatorData: Data
+    let rangeStart: String?
+    let rangeEnd: String?
+    let text: String
+    let note: String?
+    let color: HighlightColor
+    let chapterTitle: String?
+
+    init(_ annotation: Annotation) {
+        id = annotation.id
+        kind = annotation.kind
+        created = annotation.created
+        locatorData = annotation.locatorData
+        rangeStart = annotation.rangeStart
+        rangeEnd = annotation.rangeEnd
+        text = annotation.text
+        note = annotation.note
+        color = annotation.color
+        chapterTitle = annotation.chapterTitle
+    }
+
+    @discardableResult
+    func restore(to book: Book, in context: ModelContext) -> Annotation {
+        let annotation = Annotation(
+            kind: kind, locator: Locator(spineIndex: 0), text: text, chapterTitle: chapterTitle,
+            rangeStart: rangeStart, rangeEnd: rangeEnd, color: color)
+        annotation.id = id
+        annotation.created = created
+        annotation.locatorData = locatorData
+        annotation.note = note
+        context.insert(annotation)
+        annotation.book = book
+        try? context.save()
+        return annotation
+    }
+}
+
 @Observable
 final class ReaderModel {
     let book: Book
@@ -82,13 +151,25 @@ final class ReaderModel {
     var isChromeVisible = false
     var showsPagesLeft = false
     var isRotationLocked = false
-    var sheet: ReaderSheet?
+    /// Opening any sheet ends the way back to search results; the reader has moved on.
+    var sheet: ReaderSheet? {
+        didSet { if sheet != nil { searchReturn = nil } }
+    }
     var popover: ReaderPopover?
-    var editingNote: Annotation?
+    var editingNote: Annotation? {
+        didSet { if editingNote != nil { searchReturn = nil } }
+    }
     var lastHighlightColor: HighlightColor = .yellow
     var searchQuery = ""
     var searchResults: [BookSearchResult] = []
     var isSearching = false
+    /// The query `searchResults` answer, so reopening the search doesn't search again and lose them.
+    private var searchedQuery: String?
+    /// Set after jumping to a search result, while the reader offers a way back to the results.
+    private(set) var searchReturn: SearchReturn?
+    /// The highlight or bookmark just deleted, offered back for a few seconds.
+    private(set) var recentlyDeleted: DeletedAnnotation?
+    private var undoExpiry: Task<Void, Never>?
 
     weak var navigator: ReaderNavigator?
     /// Shows what's being read aloud; the same view controller as `navigator`.
@@ -188,6 +269,8 @@ final class ReaderModel {
         book.progress = updated.totalProgression
         book.lastOpened = .now
         checkpointReadingClock()
+        followSearchReturn(to: PagePosition(
+            spineIndex: publication.layout == .prePaginated ? 0 : updated.spineIndex, page: page, pageCount: self.pageCount))
         Task { await refreshBookmarkState() }
     }
 
@@ -216,6 +299,11 @@ final class ReaderModel {
     /// The reader moved to another page themselves (not the narration following along).
     func userDidNavigate() {
         listening?.readerWasNavigated()
+        // Without pages to count, two scrolls stand in for two page turns.
+        if !hasPages, var trip = searchReturn {
+            trip.scrolls += 1
+            searchReturn = trip.scrolls >= 2 ? nil : trip
+        }
     }
 
     func stopListening() {
@@ -249,8 +337,9 @@ final class ReaderModel {
 
     func toggleBookmark() {
         if isBookmarked {
+            // The button itself puts a removed bookmark back, so this doesn't offer Undo.
             Task {
-                for bookmark in await bookmarksOnCurrentPage() { delete(bookmark) }
+                for bookmark in await bookmarksOnCurrentPage() { remove(bookmark) }
                 await refreshBookmarkState()
             }
         } else {
@@ -314,7 +403,35 @@ final class ReaderModel {
         navigator?.reloadHighlights()
     }
 
+    /// Deletes a highlight (with its note) or a bookmark straight away, and offers it back for a few seconds.
     func delete(_ annotation: Annotation) {
+        let deleted = DeletedAnnotation(annotation)
+        remove(annotation)
+        if deleted.kind == .bookmark { Task { await refreshBookmarkState() } }
+        recentlyDeleted = deleted
+        AccessibilityNotification.Announcement(deleted.kind == .highlight
+            ? String(localized: "Highlight deleted") : String(localized: "Bookmark deleted")).post()
+        undoExpiry?.cancel()
+        undoExpiry = Task { [weak self] in
+            try? await Task.sleep(for: Self.undoDuration)
+            guard !Task.isCancelled, self?.recentlyDeleted == deleted else { return }
+            self?.recentlyDeleted = nil
+        }
+    }
+
+    /// Puts back what was just deleted, as it was.
+    func undoDelete() {
+        guard let deleted = recentlyDeleted else { return }
+        undoExpiry?.cancel()
+        recentlyDeleted = nil
+        deleted.restore(to: book, in: context)
+        navigator?.reloadHighlights()
+        if deleted.kind == .bookmark { Task { await refreshBookmarkState() } }
+    }
+
+    static let undoDuration: Duration = .seconds(6)
+
+    private func remove(_ annotation: Annotation) {
         if popover.map({ if case .highlight(annotation.id) = $0.content { true } else { false } }) == true {
             popover = nil
         }
@@ -329,6 +446,12 @@ final class ReaderModel {
         let query = searchQuery
         guard query.trimmingCharacters(in: .whitespaces).count >= 2 else {
             searchResults = []
+            searchedQuery = nil
+            isSearching = false
+            return
+        }
+        // Reopened on the same query: the results are already here.
+        guard query != searchedQuery else {
             isSearching = false
             return
         }
@@ -340,13 +463,34 @@ final class ReaderModel {
         }.value
         guard query == searchQuery else { return }
         searchResults = results
+        searchedQuery = query
         isSearching = false
     }
 
     func show(_ result: BookSearchResult) {
         sheet = nil
         userDidNavigate()
+        searchReturn = SearchReturn(spineIndex: result.spineIndex)
         navigator?.show(result)
+    }
+
+    /// Back to the search sheet, with the query and results as they were.
+    func returnToSearchResults() {
+        sheet = .search
+    }
+
+    /// Whether the reader turns pages that can be counted, rather than scrolling.
+    private var hasPages: Bool { !isScrollMode && publication.layout != .roll }
+
+    /// Remembers the page a search result landed on, then lets the way back go once the reader is two pages away.
+    private func followSearchReturn(to position: PagePosition) {
+        guard var trip = searchReturn, hasPages else { return }
+        if let landing = trip.landing {
+            if landing.pagesTurned(to: position) >= 2 { searchReturn = nil }
+        } else if publication.layout != .reflowable || position.spineIndex == trip.spineIndex {
+            trip.landing = position
+            searchReturn = trip
+        }
     }
 
     // MARK: - Reading time
@@ -380,6 +524,8 @@ final class ReaderModel {
     static let maxIdleReadingTime: TimeInterval = 30 * 60
 
     func close() {
+        searchReturn = nil
+        undoExpiry?.cancel()
         stopListening()
         stopReadingClock()
         try? context.save()

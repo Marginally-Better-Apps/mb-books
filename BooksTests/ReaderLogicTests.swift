@@ -99,6 +99,29 @@ final class ReaderLogicTests: XCTestCase {
         XCTAssertTrue(markers.contains("2") && markers.contains("[3]"), "\(markers)")
     }
 
+    func testSearchSnippetsStopAtHeadingsAndParagraphsButKeepOffsets() throws {
+        let archive = try ZipArchive(url: Fixtures.write(SampleBook.make()))
+        let content = try Fixtures.temporaryDirectory()
+        try archive.extractAll(to: content)
+        let container = DirectoryContainer(root: content)
+        let publication = try EPUBParser.parse(container)
+        let text = try BookSearcher.bodyText(container.data(at: publication.spine[0].item.path)) as NSString
+
+        // "Departure" is the heading just before the first paragraph: it mustn't run into the sentence.
+        let captain = try XCTUnwrap(BookSearcher.search("captain", in: publication, container: container).first)
+        XCTAssertEqual(captain.before, "The ", captain.before)
+        XCTAssertEqual(text.substring(with: NSRange(location: captain.offset, length: captain.match.utf16.count)), "captain")
+        let twice = try XCTUnwrap(BookSearcher.search("twice", in: publication, container: container).first)
+        XCTAssertEqual(twice.after, ".", "The next paragraph isn't part of the snippet")
+
+        let html = Fixtures.xhtml("<h1>Departure</h1>\n<p>The captain sailed.<br/>Night fell.</p><ul><li>One</li><li>Two</li></ul>")
+        let indexed = try BookSearcher.indexedBodyText(Data(html.utf8))
+        let source = indexed.text as NSString
+        let starts = ["Departure", "The captain", "Night", "One", "Two"].map { source.range(of: $0).location }
+        XCTAssertTrue(Set(starts).isSubset(of: indexed.blockBoundaries), "\(indexed.blockBoundaries) vs \(starts)")
+        XCTAssertFalse(indexed.blockBoundaries.contains(source.range(of: "captain").location))
+    }
+
     func testBodyTextSkipsScriptsAndStyles() throws {
         let html = Fixtures.xhtml("<style>p{}</style><p>Hello <b>world</b></p><script>var x = 1;</script>&amp; more")
         XCTAssertEqual(try BookSearcher.bodyText(Data(html.utf8)), "Hello world& more")

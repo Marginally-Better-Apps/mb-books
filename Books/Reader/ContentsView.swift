@@ -6,11 +6,9 @@ struct ContentsView: View {
     @Bindable var model: ReaderModel
 
     @Environment(\.dismiss) private var dismiss
-    @Environment(\.modelContext) private var context
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var tab = Tab.contents
     @State private var scrubValue: Double?
-    /// The highlight just deleted from the list, offered back for a few seconds.
-    @State private var deleted: DeletedHighlight?
 
     enum Tab: Hashable { case contents, bookmarks, highlights }
 
@@ -33,16 +31,16 @@ struct ContentsView: View {
                 case .highlights: annotationList(model.book.highlights, empty: highlightsEmpty)
                 }
             }
+            // The reader keeps what was deleted, so Undo carries on there once this sheet closes.
             .safeAreaInset(edge: .bottom) {
-                if let deleted { undoBanner(deleted) }
+                if let deleted = model.recentlyDeleted {
+                    UndoDeleteBanner(deleted: deleted, undoIdentifier: "contents.undoDelete") { model.undoDelete() }
+                        .padding(.horizontal)
+                        .padding(.bottom, 8)
+                        .transition(UndoDeleteBanner.transition(reduceMotion: reduceMotion))
+                }
             }
-            .animation(.smooth(duration: 0.25), value: deleted)
-            .task(id: deleted) {
-                guard deleted != nil else { return }
-                try? await Task.sleep(for: .seconds(6))
-                guard !Task.isCancelled else { return }
-                deleted = nil
-            }
+            .animation(.smooth(duration: 0.25), value: model.recentlyDeleted)
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
                     Button(role: .close) { dismiss() }
@@ -52,32 +50,6 @@ struct ContentsView: View {
             .navigationBarTitleDisplayMode(.inline)
         }
         .presentationDragIndicator(.visible)
-    }
-
-    private func undoBanner(_ highlight: DeletedHighlight) -> some View {
-        HStack {
-            Text("Highlight Deleted").font(.subheadline.weight(.medium))
-            Spacer()
-            Button("Undo") {
-                highlight.restore(to: model.book, in: context)
-                model.navigator?.reloadHighlights()
-                deleted = nil
-            }
-            .font(.subheadline.weight(.semibold))
-            .frame(minHeight: 44)
-            .accessibilityIdentifier("contents.undoDelete")
-        }
-        .padding(.horizontal, 20)
-        .glassEffect(.regular, in: .capsule)
-        .padding(.horizontal)
-        .padding(.bottom, 8)
-        .transition(.move(edge: .bottom).combined(with: .opacity))
-    }
-
-    /// Deletes from the list; a highlight (with its note) can be brought back from the banner.
-    private func delete(_ annotation: Annotation) {
-        deleted = annotation.kind == .highlight ? DeletedHighlight(annotation) : nil
-        model.delete(annotation)
     }
 
     private var header: some View {
@@ -189,7 +161,7 @@ struct ContentsView: View {
                 .buttonStyle(.plain)
                 .listRowBackground(Color.clear)
                 .swipeActions {
-                    Button("Delete", systemImage: "trash", role: .destructive) { delete(annotation) }
+                    Button("Delete", systemImage: "trash", role: .destructive) { model.delete(annotation) }
                 }
                 .contextMenu {
                     if annotation.kind == .highlight {
@@ -199,7 +171,7 @@ struct ContentsView: View {
                         }
                         Button("Copy", systemImage: "doc.on.doc") { UIPasteboard.general.string = annotation.text }
                     }
-                    Button("Delete", systemImage: "trash", role: .destructive) { delete(annotation) }
+                    Button("Delete", systemImage: "trash", role: .destructive) { model.delete(annotation) }
                 }
             }
         }
@@ -262,46 +234,6 @@ private struct AnnotationRow: View {
     }
 }
 
-/// A deleted highlight's contents, enough to put it back as it was, note included.
-struct DeletedHighlight: Equatable {
-    let id: UUID
-    let created: Date
-    let locatorData: Data
-    let rangeStart: String?
-    let rangeEnd: String?
-    let text: String
-    let note: String?
-    let color: HighlightColor
-    let chapterTitle: String?
-
-    init(_ annotation: Annotation) {
-        id = annotation.id
-        created = annotation.created
-        locatorData = annotation.locatorData
-        rangeStart = annotation.rangeStart
-        rangeEnd = annotation.rangeEnd
-        text = annotation.text
-        note = annotation.note
-        color = annotation.color
-        chapterTitle = annotation.chapterTitle
-    }
-
-    @discardableResult
-    func restore(to book: Book, in context: ModelContext) -> Annotation {
-        let annotation = Annotation(
-            kind: .highlight, locator: Locator(spineIndex: 0), text: text, chapterTitle: chapterTitle,
-            rangeStart: rangeStart, rangeEnd: rangeEnd, color: color)
-        annotation.id = id
-        annotation.created = created
-        annotation.locatorData = locatorData
-        annotation.note = note
-        context.insert(annotation)
-        annotation.book = book
-        try? context.save()
-        return annotation
-    }
-}
-
 /// The palette shown after highlighting or when tapping an existing highlight.
 struct HighlightMenu: View {
     let model: ReaderModel
@@ -309,8 +241,6 @@ struct HighlightMenu: View {
 
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @ScaledMetric(relativeTo: .title3) private var swatchSize: CGFloat = 28
-    /// Deleting asks once, inline: the palette closes with the highlight, so it can't offer Undo afterwards.
-    @State private var isConfirmingDelete = false
 
     private static let colors = HighlightColor.allCases
 
@@ -332,32 +262,15 @@ struct HighlightMenu: View {
                 }
             }
             .sensoryFeedback(.selection, trigger: annotation.color)
-            if isConfirmingDelete {
-                HStack(spacing: 0) {
-                    Button("Cancel") { isConfirmingDelete = false }
-                        .frame(maxWidth: .infinity, minHeight: 44)
-                        .contentShape(.rect)
-                    Button("Delete", role: .destructive) { model.delete(annotation) }
-                        .fontWeight(.semibold)
-                        .foregroundStyle(.red)
-                        .frame(maxWidth: .infinity, minHeight: 44)
-                        .contentShape(.rect)
-                        .accessibilityLabel("Delete Highlight")
-                        .accessibilityIdentifier("highlight.confirmDelete")
+            Grid(horizontalSpacing: 0, verticalSpacing: 0) {
+                if dynamicTypeSize.isAccessibilitySize {
+                    GridRow { noteAction; copyAction }
+                    GridRow { shareAction; deleteAction }
+                } else {
+                    GridRow { noteAction; copyAction; shareAction; deleteAction }
                 }
-                .buttonStyle(.plain)
-                .frame(width: target * CGFloat(columns))
-            } else {
-                Grid(horizontalSpacing: 0, verticalSpacing: 0) {
-                    if dynamicTypeSize.isAccessibilitySize {
-                        GridRow { noteAction; copyAction }
-                        GridRow { shareAction; deleteAction }
-                    } else {
-                        GridRow { noteAction; copyAction; shareAction; deleteAction }
-                    }
-                }
-                .font(.title3)
             }
+            .font(.title3)
         }
         .padding(10)
         .fixedSize()
@@ -408,10 +321,13 @@ struct HighlightMenu: View {
                 .frame(width: actionWidth, height: 44)
                 .contentShape(.rect)
         }
+        .buttonStyle(.plain)
+        .foregroundStyle(.primary)
     }
 
+    /// Deletes straight away and closes the palette; the reader offers Undo for a few seconds.
     private var deleteAction: some View {
-        action("Delete", "trash", role: .destructive) { isConfirmingDelete = true }
+        action("Delete", "trash", role: .destructive) { model.delete(annotation) }
             .accessibilityIdentifier("highlight.delete")
     }
 
