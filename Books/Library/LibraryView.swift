@@ -438,4 +438,3 @@ struct CollectionPicker: View {
         }
     }
 }
-
