@@ -54,7 +54,7 @@ struct SettingsView: View {
                 }
 
                 Section("Library") {
-                    LabeledContent("Books", value: "\(books.count)")
+                    LabeledContent("All Books", value: "\(books.count)")
                     LabeledContent("Storage", value: ByteCountFormatStyle().format(books.reduce(0) { $0 + $1.fileSize }))
                 }
 

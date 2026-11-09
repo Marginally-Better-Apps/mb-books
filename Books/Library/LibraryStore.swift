@@ -84,7 +84,7 @@ final class LibraryStore {
         switch error {
         case is EPUBError, is ZipError: error.localizedDescription
         case is MarkupError: String(localized: "The book is damaged or incomplete.")
-        default: String(localized: "The file couldn’t be read.")
+        default: String(localized: "The file couldn't be read.")
         }
     }
 
@@ -92,9 +92,9 @@ final class LibraryStore {
     static func failureSummary(_ failures: [ImportFailure]) -> (title: String, message: String) {
         guard failures.count > 1 else {
             let failure = failures.first
-            return (String(localized: "Couldn’t Add “\(failure?.fileName ?? "")”"), failure?.message ?? "")
+            return (String(localized: "Couldn't Add \"\(failure?.fileName ?? "")\""), failure?.message ?? "")
         }
-        let title = String(inflecting: "Couldn’t Add ^[\(failures.count) Book](inflect: true)")
+        let title = String(inflecting: "Couldn't Add ^[\(failures.count) Book](inflect: true)")
         let message = failures.map { "\($0.fileName): \($0.message)" }.joined(separator: "\n\n")
         return (title, message)
     }

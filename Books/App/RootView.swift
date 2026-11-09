@@ -6,10 +6,10 @@ enum AppTab: Hashable {
     case home, library, search
 }
 
-/// A request to open a book, carrying the zoom transition's source.
+/// A request to open a book, carrying the zoom transition's source, or nil to open without zooming.
 struct ReadingSession: Identifiable {
     let book: Book
-    let sourceID: String
+    let sourceID: String?
     var id: UUID { book.id }
 }
 
@@ -24,6 +24,7 @@ extension EnvironmentValues {
 struct RootView: View {
     @Environment(\.modelContext) private var context
     @Environment(LibraryStore.self) private var library
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var tab = AppTab.home
     @State private var session: ReadingSession?
     @State private var isImporting = false
@@ -49,13 +50,21 @@ struct RootView: View {
         // A sidebar on iPad, a tab bar on iPhone.
         .tabViewStyle(.sidebarAdaptable)
         .tabBarMinimizeBehavior(.onScrollDown)
-        .environment(\.openBook) { book, sourceID in session = ReadingSession(book: book, sourceID: sourceID) }
+        // Under Reduce Motion the book opens with the standard presentation instead of zooming from its cover.
+        .environment(\.openBook) { book, sourceID in
+            session = ReadingSession(book: book, sourceID: reduceMotion ? nil : sourceID)
+        }
         .environment(\.importBooks) { isImporting = true }
         .environment(\.showSettings) { isShowingSettings = true }
         .environment(\.readerTransition, transition)
         .fullScreenCover(item: $session) { session in
-            ReaderView(book: session.book)
-                .navigationTransition(.zoom(sourceID: session.sourceID, in: transition))
+            // Decided once per session, so the reader is never rebuilt while it's open.
+            if let sourceID = session.sourceID {
+                ReaderView(book: session.book)
+                    .navigationTransition(.zoom(sourceID: sourceID, in: transition))
+            } else {
+                ReaderView(book: session.book)
+            }
         }
         .sheet(isPresented: $isShowingSettings) {
             SettingsView()
@@ -67,7 +76,7 @@ struct RootView: View {
         .onOpenURL { url in
             Task {
                 let books = await library.importBooks(from: [url], into: context)
-                if let book = books.first { session = ReadingSession(book: book, sourceID: "opened-\(book.id)") }
+                if let book = books.first { session = ReadingSession(book: book, sourceID: reduceMotion ? nil : "opened-\(book.id)") }
             }
         }
         .alert(failureSummary.title, isPresented: isShowingFailures) {
@@ -89,7 +98,7 @@ struct RootView: View {
                         }
                 }
             }
-            .transition(.move(edge: .top).combined(with: .opacity))
+            .transition(reduceMotion ? .opacity : .move(edge: .top).combined(with: .opacity))
         }
         .animation(.smooth, value: library.isImporting)
         .animation(.smooth, value: library.importNotice)

@@ -277,7 +277,7 @@ struct CollectionsView: View {
                     .accessibilityIdentifier("collections.wantToRead")
                 link(.finished, "Finished", "checkmark.circle", books.filter(\.isFinished).count)
                     .accessibilityIdentifier("collections.finished")
-                link(.all, "All Books", "books.vertical", books.count)
+                link(.all, "All Books", "book", books.count)
                     .accessibilityIdentifier("collections.all")
             }
             Section("My Collections") {

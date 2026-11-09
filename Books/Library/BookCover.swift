@@ -247,7 +247,7 @@ private struct BookActionPresentations: ViewModifier {
 
     func body(content: Content) -> some View {
         content
-            .confirmationDialog("Remove “\(book.title)”?", isPresented: $state.isConfirmingRemoval, titleVisibility: .visible) {
+            .confirmationDialog("Remove \"\(book.title)\"?", isPresented: $state.isConfirmingRemoval, titleVisibility: .visible) {
                 Button("Remove from Library", role: .destructive) { library.delete([book], from: context) }
             } message: {
                 Text("The book, its highlights, notes, and bookmarks will be deleted from this device.")

@@ -128,13 +128,20 @@ struct ListenSettingsView: View {
 
     @Environment(\.dismiss) private var dismiss
 
+    /// Until the natural voices are installed, the Apple voices come first: they're the ones that read right now.
+    /// Decided when the sheet opens, so finishing a download doesn't reorder the list under the reader's finger.
+    @State private var listsNaturalVoicesFirst = NeuralVoiceStore.shared.isReady
+
     var body: some View {
         NavigationStack {
             Form {
-                if session.supportsNaturalVoices {
-                    NaturalVoicesSection(session: session)
+                if listsNaturalVoicesFirst {
+                    if session.supportsNaturalVoices { NaturalVoicesSection(session: session) }
+                    SystemVoicesSection(session: session)
+                } else {
+                    SystemVoicesSection(session: session)
+                    if session.supportsNaturalVoices { NaturalVoicesSection(session: session) }
                 }
-                SystemVoicesSection(session: session)
 
                 Section("Playback") {
                     Picker("Speed", selection: $session.preferences.speed) {
@@ -179,8 +186,8 @@ struct ListenSettingsView: View {
     }
 }
 
-/// A row in the voice list: a preview button, the name, and a checkmark when chosen, or a download glyph when the
-/// voice needs the natural voices downloaded first.
+/// A row in the voice list: a preview button, the name, and a checkmark when chosen. A voice that needs the natural
+/// voices downloaded first shows nothing extra; the section's download row and footer already say so.
 private struct VoiceRow: View {
     enum Status { case available, needsDownload, pending }
 
@@ -217,7 +224,7 @@ private struct VoiceRow: View {
                     Spacer()
                     switch status {
                     case .needsDownload:
-                        Image(systemName: "arrow.down.circle").foregroundStyle(.tint)
+                        EmptyView()
                     case .pending:
                         Image(systemName: "clock").foregroundStyle(.secondary)
                     case .available:
@@ -269,7 +276,12 @@ private struct NaturalVoicesSection: View {
         } header: {
             Text("Natural Voices")
         } footer: {
-            Text("Natural voices run entirely on this device, so nothing you read is sent anywhere. They read English books.")
+            VStack(alignment: .leading, spacing: 6) {
+                if !store.isReady && !store.isDownloading {
+                    Text("Preview any voice, then download them to use one.")
+                }
+                Text("Natural voices run entirely on this device, so nothing you read is sent anywhere. They read English books.")
+            }
         }
         .confirmationDialog(
             "Download Natural Voices?", isPresented: Binding(

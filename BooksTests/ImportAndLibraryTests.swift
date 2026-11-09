@@ -179,9 +179,9 @@ final class BookImporterTests: XCTestCase {
         XCTAssertEqual(store.importFailures.map(\.message), ["This file isn't a valid EPUB book.", "This file isn't a valid EPUB book."])
 
         let summary = LibraryStore.failureSummary(store.importFailures)
-        XCTAssertEqual(summary.title, "Couldn’t Add 2 Books")
+        XCTAssertEqual(summary.title, "Couldn't Add 2 Books")
         XCTAssertTrue(summary.message.contains("notes.epub: This file isn't a valid EPUB book."))
-        XCTAssertEqual(LibraryStore.failureSummary(Array(store.importFailures.prefix(1))).title, "Couldn’t Add “notes.epub”")
+        XCTAssertEqual(LibraryStore.failureSummary(Array(store.importFailures.prefix(1))).title, "Couldn't Add \"notes.epub\"")
         XCTAssertEqual(store.importNotice?.title, "Added 1 Book", "Multi-file imports confirm what was added")
     }
 

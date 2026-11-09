@@ -401,6 +401,74 @@ struct NoteEditor: View {
         }
         .onAppear { focused = true }
         .interactiveDismissDisabled(hasChanges)
+        // A blocked swipe asks, as Notes and Mail do, instead of only rubber-banding.
+        .background(DismissalAttempts { if hasChanges { isConfirmingDiscard = true } })
         .presentationDetents([.medium, .large])
+    }
+
+    /// Reports a swipe that tried to dismiss the sheet it's placed in while dismissal is disabled.
+    private struct DismissalAttempts: UIViewControllerRepresentable {
+        let onAttempt: () -> Void
+
+        func makeUIViewController(context: Context) -> Controller { Controller(onAttempt: onAttempt) }
+
+        func updateUIViewController(_ controller: Controller, context: Context) {
+            controller.relay.onAttempt = onAttempt
+            controller.install()
+        }
+
+        final class Controller: UIViewController {
+            let relay: Relay
+
+            init(onAttempt: @escaping () -> Void) {
+                relay = Relay(onAttempt: onAttempt)
+                super.init(nibName: nil, bundle: nil)
+            }
+
+            @available(*, unavailable)
+            required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
+
+            override func didMove(toParent parent: UIViewController?) {
+                super.didMove(toParent: parent)
+                install()
+            }
+
+            override func viewWillAppear(_ animated: Bool) {
+                super.viewWillAppear(animated)
+                install()
+            }
+
+            /// Steps in as the delegate of the presented controller, the root of this controller's parent chain.
+            func install() {
+                var root: UIViewController = self
+                while let parent = root.parent { root = parent }
+                guard root.presentingViewController != nil, let presentation = root.presentationController,
+                      presentation.delegate !== relay else { return }
+                relay.original = presentation.delegate
+                presentation.delegate = relay
+            }
+        }
+
+        /// Hears the dismissal attempt and passes every delegate call on to SwiftUI's own delegate, which
+        /// keeps the sheet's binding and `interactiveDismissDisabled` working.
+        final class Relay: NSObject, UIAdaptivePresentationControllerDelegate {
+            var onAttempt: () -> Void
+            nonisolated(unsafe) weak var original: (any UIAdaptivePresentationControllerDelegate)?
+
+            init(onAttempt: @escaping () -> Void) { self.onAttempt = onAttempt }
+
+            func presentationControllerDidAttemptToDismiss(_ presentationController: UIPresentationController) {
+                original?.presentationControllerDidAttemptToDismiss?(presentationController)
+                onAttempt()
+            }
+
+            nonisolated override func responds(to selector: Selector!) -> Bool {
+                super.responds(to: selector) || original?.responds(to: selector) == true
+            }
+
+            nonisolated override func forwardingTarget(for selector: Selector!) -> Any? {
+                original?.responds(to: selector) == true ? original : super.forwardingTarget(for: selector)
+            }
+        }
     }
 }
