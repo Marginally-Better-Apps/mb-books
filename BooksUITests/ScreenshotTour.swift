@@ -237,7 +237,8 @@ final class ScreenshotTour: XCTestCase {
         save("07-voices")
         app.buttons["voice.preview.george"].tap()
         save("08-preview")
-        app.swipeUp()
+        let appleVoice = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'voice.select.com.apple'")).firstMatch
+        for _ in 0..<8 where !(appleVoice.exists && appleVoice.isHittable) { app.swipeDown() }
         save("09-apple-voices")
         app.buttons["listen.done"].tap()
         app.swipeLeft()

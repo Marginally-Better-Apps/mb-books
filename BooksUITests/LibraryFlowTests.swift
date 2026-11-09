@@ -185,15 +185,7 @@ final class LibraryFlowTests: XCTestCase {
         XCTAssertTrue(wait(for: playPause, toMatch: "label == 'Play'"))
 
         app.buttons["reader.listen"].tap()
-        // Natural voices can be heard before they're downloaded.
-        let naturalPreview = app.buttons["voice.preview.george"]
-        XCTAssertTrue(naturalPreview.waitForExistence(timeout: 5))
-        naturalPreview.tap()
-        XCTAssertTrue(wait(for: naturalPreview, toMatch: "label == 'Stop Sample'"), "The sample plays")
-        naturalPreview.tap()
-        XCTAssertTrue(wait(for: naturalPreview, toMatch: "label BEGINSWITH 'Play Sample'"))
-
-        // Choose a different Apple voice while paused.
+        // Choose a different Apple voice while paused. Until natural voices are installed, Apple voices come first.
         let systemVoices = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'voice.select.com.apple'"))
         var identifier: String?
         for _ in 0..<6 where identifier == nil {
@@ -208,6 +200,15 @@ final class LibraryFlowTests: XCTestCase {
         let choice = app.buttons[try XCTUnwrap(identifier, "An Apple voice to choose")]
         choice.tap()
         XCTAssertTrue(wait(for: choice, toMatch: "isSelected == true"), "The voice is chosen")
+
+        // Natural voices can be heard before they're downloaded.
+        let naturalPreview = app.buttons["voice.preview.george"]
+        for _ in 0..<10 where !(naturalPreview.exists && naturalPreview.isHittable) { app.swipeUp() }
+        sleep(1)
+        naturalPreview.tap()
+        XCTAssertTrue(wait(for: naturalPreview, toMatch: "label == 'Stop Sample'"), "The sample plays")
+        naturalPreview.tap()
+        XCTAssertTrue(wait(for: naturalPreview, toMatch: "label BEGINSWITH 'Play Sample'"))
         app.buttons["listen.done"].tap()
 
         showChrome()

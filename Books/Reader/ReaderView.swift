@@ -90,7 +90,9 @@ private struct ReaderScreen: View {
     private var button: CGFloat { min(scaledButton, 34) }
     private var menuButton: CGFloat { min(scaledMenuButton, 52) }
 
-    var body: some View {
+    /// The page, its controls, and what they present.
+    @ViewBuilder
+    private var screen: some View {
         let palette = model.palette
         ZStack {
             palette.backgroundColor.ignoresSafeArea()
@@ -115,21 +117,28 @@ private struct ReaderScreen: View {
         .persistentSystemOverlays(model.isChromeVisible ? .automatic : .hidden)
         // Sheets and popovers are presented apart from the view above, so each takes the theme's appearance itself.
         .sheet(item: $model.sheet) { sheet in
-            Group {
-                switch sheet {
-                case .contents: ContentsView(model: model)
-                case .themes: ThemesView(model: model, isRegularWidth: horizontalSizeClass == .regular)
-                case .search: BookSearchView(model: model)
-                case .listen:
-                    if let session = model.listening { ListenSettingsView(session: session) }
-                }
-            }
-            .readerColorScheme(model.palette)
+            sheetContent(sheet).readerColorScheme(model.palette)
         }
-        .sheet(item: $model.editingNote) { annotation in
-            NoteEditor(annotation: annotation)
-                .readerColorScheme(model.palette)
+        .sheet(item: editingNote) { (annotation: Annotation) in
+            NoteEditor(annotation: annotation).readerColorScheme(model.palette)
         }
+    }
+
+    private var editingNote: Binding<Annotation?> { $model.editingNote }
+
+    @ViewBuilder
+    private func sheetContent(_ sheet: ReaderSheet) -> some View {
+        switch sheet {
+        case .contents: ContentsView(model: model)
+        case .themes: ThemesView(model: model, isRegularWidth: horizontalSizeClass == .regular)
+        case .search: BookSearchView(model: model)
+        case .listen:
+            if let session = model.listening { ListenSettingsView(session: session) }
+        }
+    }
+
+    var body: some View {
+        screen
         .onAppear {
             model.isDarkAppearance = colorScheme == .dark
             model.startReadingClock()
@@ -144,9 +153,8 @@ private struct ReaderScreen: View {
         }
         // While the book is read aloud, the controls step aside after a moment so they don't cover the words being read.
         // Not with VoiceOver, though: the controls would vanish from under its focus.
-        .task(id: [model.isChromeVisible, model.listening?.isPlaying == true, isMenuOpen, model.sheet == nil, voiceOverEnabled]) {
-            guard model.isChromeVisible, model.listening?.isPlaying == true, !isMenuOpen, model.sheet == nil,
-                  !voiceOverEnabled, !Self.keepsControlsVisible else { return }
+        .task(id: autoHideState) {
+            guard autoHideState == [true, true, false, true, false], !Self.keepsControlsVisible else { return }
             try? await Task.sleep(for: .seconds(4))
             guard !Task.isCancelled else { return }
             model.hideChrome()
@@ -155,6 +163,12 @@ private struct ReaderScreen: View {
             model.close()
             orientationLock.unlock()
         }
+    }
+
+    /// Whether the controls are up, the book is playing, the menu is open, no sheet is up, and VoiceOver is on.
+    private var autoHideState: [Bool] {
+        let isPlaying = model.listening?.isPlaying == true
+        return [model.isChromeVisible, isPlaying, isMenuOpen, model.sheet == nil, voiceOverEnabled]
     }
 
     /// An invisible view covering the popover's target, such as a highlight. `reader.js` reports rects
