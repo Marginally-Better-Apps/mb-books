@@ -59,14 +59,14 @@ final class LibraryFlowTests: XCTestCase {
         app.buttons["themes.customize"].tap()
         XCTAssertTrue(app.switches["Bold Text"].waitForExistence(timeout: 5))
         app.navigationBars.buttons.element(boundBy: 0).tap()
-        app.buttons["Done"].firstMatch.tap()
+        app.buttons["Close"].firstMatch.tap()
 
         // Bookmark the page, then confirm it is listed.
         openMenu("reader.bookmark").tap()
         openMenu("reader.menu.contents").tap()
         app.buttons["Bookmarks"].tap()
         XCTAssertTrue(app.staticTexts["Open Water"].waitForExistence(timeout: 5))
-        app.buttons["Done"].firstMatch.tap()
+        app.buttons["Close"].firstMatch.tap()
 
         showChrome()
         app.buttons["reader.close"].tap()
@@ -140,7 +140,7 @@ final class LibraryFlowTests: XCTestCase {
         XCTAssertTrue(app.buttons["listen.speed"].exists)
 
         // What's read: every chapter, with the footnote and its marker left out.
-        app.buttons["listen.options"].tap()
+        app.buttons["reader.listen"].tap()
         let contents = app.buttons["listen.contents"]
         XCTAssertTrue(app.buttons["listen.done"].waitForExistence(timeout: 5))
         for _ in 0..<8 where !(contents.exists && contents.isHittable) { app.swipeUp() }
@@ -184,7 +184,7 @@ final class LibraryFlowTests: XCTestCase {
         playPause.tap()
         XCTAssertTrue(wait(for: playPause, toMatch: "label == 'Play'"))
 
-        app.buttons["listen.options"].tap()
+        app.buttons["reader.listen"].tap()
         // Natural voices can be heard before they're downloaded.
         let naturalPreview = app.buttons["voice.preview.george"]
         XCTAssertTrue(naturalPreview.waitForExistence(timeout: 5))
@@ -240,7 +240,7 @@ final class LibraryFlowTests: XCTestCase {
         let option = app.buttons[style].firstMatch
         XCTAssertTrue(option.waitForExistence(timeout: 5), "The Page Turn menu should offer \(style)")
         option.tap()
-        app.buttons["Done"].firstMatch.tap()
+        app.buttons["Close"].firstMatch.tap()
     }
 
     /// Swipes until the heading `title` is on screen (not just somewhere in the chapter's columns).

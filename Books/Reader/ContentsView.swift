@@ -106,7 +106,7 @@ struct ContentsView: View {
                     Text(model.publication.chapterTitle(forSpineIndex: scrubTarget) ?? "")
                         .lineLimit(1)
                     Spacer()
-                    Text("\(Int(((scrubValue ?? model.location.totalProgression) * 100).rounded()))%")
+                    Text("\(Book.wholePercent(scrubValue ?? model.location.totalProgression, opened: true))%")
                         .monospacedDigit()
                 }
                 .font(.caption)

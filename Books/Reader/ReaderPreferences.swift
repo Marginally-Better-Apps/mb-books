@@ -157,7 +157,7 @@ enum PageTurnStyle: String, Codable, CaseIterable, Identifiable {
     var systemImage: String {
         switch self {
         case .curl: "book.pages"
-        case .slide: "rectangle.portrait.on.rectangle.portrait.angled"
+        case .slide: "arrow.left.and.right"
         case .fade: "circle.dashed"
         case .scroll: "arrow.up.and.down.text.horizontal"
         }

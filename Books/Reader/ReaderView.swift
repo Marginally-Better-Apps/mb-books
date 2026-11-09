@@ -20,7 +20,9 @@ struct ReaderView: View {
             ReaderScreen(model: model)
         } else {
             let palette = theme.palette(dark: colorScheme == .dark)
-            Group {
+            // The page color is always there, so the tasks below run even before the spinner appears.
+            ZStack {
+                palette.backgroundColor.ignoresSafeArea()
                 if let failure {
                     ContentUnavailableView {
                         Label("Can't Open Book", systemImage: "exclamationmark.triangle")
@@ -33,8 +35,6 @@ struct ReaderView: View {
                     ProgressView().controlSize(.large)
                 }
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .background(palette.backgroundColor)
             .environment(\.colorScheme, palette.isDark ? .dark : .light)
             .task { await open() }
             .task {
@@ -410,7 +410,7 @@ private struct ListeningFailureBanner: View {
             Button(action: dismiss) {
                 Image(systemName: "xmark")
                     .font(.subheadline.weight(.semibold))
-                    .frame(width: 32, height: 32)
+                    .frame(width: 44, height: 44)
                     .contentShape(.rect)
             }
             .buttonStyle(.plain)
@@ -418,8 +418,8 @@ private struct ListeningFailureBanner: View {
             .accessibilityIdentifier("listen.dismissFailure")
         }
         .padding(.leading, 16)
-        .padding(.trailing, 8)
-        .padding(.vertical, 10)
+        .padding(.trailing, 4)
+        .padding(.vertical, 6)
         .frame(maxWidth: 520)
         .glassEffect(.regular, in: .rect(cornerRadius: 24))
         .accessibilityElement(children: .contain)
@@ -428,9 +428,11 @@ private struct ListeningFailureBanner: View {
 }
 
 private extension View {
-    /// The reading theme's light or dark appearance, for views presented from the reader.
+    /// The reading theme's light or dark appearance, for views presented from the reader. The preference
+    /// styles the sheet or popover itself, which the environment alone leaves in the system appearance.
     func readerColorScheme(_ palette: ThemePalette) -> some View {
-        environment(\.colorScheme, palette.isDark ? .dark : .light)
+        preferredColorScheme(palette.isDark ? .dark : .light)
+            .environment(\.colorScheme, palette.isDark ? .dark : .light)
     }
 }
 
