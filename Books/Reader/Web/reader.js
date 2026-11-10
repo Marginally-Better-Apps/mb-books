@@ -57,10 +57,11 @@
     css += '#mb-speech-layer>div{position:absolute;border-radius:3px;}';
     css += `#mb-speech-layer>.sentence{background-color:rgba(10,132,255,${dark ? 0.2 : 0.12});}`;
     css += `#mb-speech-layer>.word{background-color:rgba(10,132,255,${dark ? 0.38 : 0.26});}`;
-    // A search hit, briefly. On dark pages a faint fill and an underline keep the light text readable over it.
+    // A search hit, briefly. On dark pages a faint fill and an underline keep the light text readable over it;
+    // on light pages the fill multiplies, darkening the paper but not the ink.
     css += dark
       ? '#mb-speech-layer>.search{background-color:rgba(255,179,64,.16);box-shadow:inset 0 -2px 0 rgba(255,179,64,.9);}'
-      : '#mb-speech-layer>.search{background-color:rgba(255,159,10,.4);}';
+      : '#mb-speech-layer>.search{background-color:rgba(255,159,10,.4);mix-blend-mode:multiply;}';
     return css;
   }
 

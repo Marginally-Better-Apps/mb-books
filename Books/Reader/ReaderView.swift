@@ -343,6 +343,8 @@ private struct ReaderScreen: View {
                 if isListenBarDocked { pageLabel(.caption2) }
             }
             .frame(maxWidth: 240)
+            // Capped like the capsule that can take its place, so the top row stays inside the page's margin.
+            .dynamicTypeSize(...DynamicTypeSize.xxLarge)
         }
     }
 
@@ -389,6 +391,7 @@ private struct ReaderScreen: View {
                 .contentShape(.rect)
         }
         .buttonStyle(.plain)
+        .accessibilityShowsLargeContentViewer { Text(pagePosition) }
         .accessibilityIdentifier("reader.pageLabel")
     }
 

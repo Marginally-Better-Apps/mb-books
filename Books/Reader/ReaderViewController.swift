@@ -217,7 +217,8 @@ final class ReaderViewController: UIViewController {
             letterSpacing: style.characterSpacing,
             wordSpacing: style.wordSpacing,
             justify: style.justify,
-            dark: model.isDarkAppearance,
+            // Marks and highlights are tuned to the page they sit on, which a theme can make dark in light mode.
+            dark: model.palette.isDark,
             colors: .init(
                 background: palette.background.cssHex,
                 text: palette.text.cssHex,
@@ -1239,6 +1240,28 @@ struct ScriptConfiguration: Encodable, Equatable {
 
     var json: String {
         (try? JSONEncoder().encode(self)).map { String(decoding: $0, as: UTF8.self) } ?? "{}"
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case mode, insets, columns, fontScale, fontFamily, bold, lineHeight, letterSpacing, wordSpacing, justify, dark, colors
+    }
+
+    /// Unset options go out as `null` rather than missing: `reader.js` merges each configuration into the last,
+    /// so a missing key would keep the previous theme's font or line spacing.
+    func encode(to encoder: any Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(mode, forKey: .mode)
+        try container.encode(insets, forKey: .insets)
+        try container.encode(columns, forKey: .columns)
+        try container.encode(fontScale, forKey: .fontScale)
+        try container.encode(fontFamily, forKey: .fontFamily)
+        try container.encode(bold, forKey: .bold)
+        try container.encode(lineHeight, forKey: .lineHeight)
+        try container.encode(letterSpacing, forKey: .letterSpacing)
+        try container.encode(wordSpacing, forKey: .wordSpacing)
+        try container.encode(justify, forKey: .justify)
+        try container.encode(dark, forKey: .dark)
+        try container.encode(colors, forKey: .colors)
     }
 }
 

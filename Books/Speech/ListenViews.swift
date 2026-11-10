@@ -127,6 +127,8 @@ struct ListenSettingsView: View {
     @Bindable var session: ListeningSession
 
     @Environment(\.dismiss) private var dismiss
+    /// Opens at medium so the page being read stays in view; the long voice list takes the full height.
+    @State private var detent = PresentationDetent.medium
 
     var body: some View {
         NavigationStack {
@@ -134,6 +136,7 @@ struct ListenSettingsView: View {
                 Section("Playback") {
                     NavigationLink {
                         VoicePicker(session: session)
+                            .onAppear { detent = .large }
                     } label: {
                         LabeledContent("Voice", value: voiceName)
                     }
@@ -167,7 +170,7 @@ struct ListenSettingsView: View {
                 }
             }
         }
-        .presentationDetents([.medium, .large])
+        .presentationDetents([.medium, .large], selection: $detent)
         .onAppear { session.prewarm() }
         .onDisappear { VoicePreview.shared.stop() }
     }
@@ -175,8 +178,9 @@ struct ListenSettingsView: View {
     /// The voice that reads now: a natural voice once they're installed, otherwise the Apple voice. While they
     /// download, the chosen natural voice, so the choice reads as kept.
     private var voiceName: String {
-        if case .downloading = NeuralVoiceStore.shared.state, let natural = session.preferences.naturalVoice {
-            return String(localized: "\(natural.name), after download")
+        if case .downloading = NeuralVoiceStore.shared.state, session.supportsNaturalVoices,
+           let natural = session.preferences.naturalVoice {
+            return String(localized: "\(natural.name) (after download)")
         }
         return switch session.resolvedVoice {
         case .natural(let voice): voice.name

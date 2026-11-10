@@ -263,6 +263,17 @@ final class ReaderLogicTests: XCTestCase {
         XCTAssertGreaterThan(pad.top - 24, phone.top - safeArea.top, "Big screens get roomier page margins")
     }
 
+    func testUnsetReaderOptionsAreSentAsNull() throws {
+        let config = ScriptConfiguration(
+            mode: "paginated", insets: .init(top: 0, bottom: 0, side: 24), columns: 1, fontScale: 1, fontFamily: nil,
+            bold: false, lineHeight: nil, letterSpacing: 0, wordSpacing: 0, justify: false, dark: false,
+            colors: .init(background: "#fff", text: "#000", link: "#00f", override: false))
+        let object = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(config.json.utf8)) as? [String: Any])
+        // `reader.js` merges each configuration into the last, so a missing key would keep the old theme's value.
+        XCTAssertTrue(object["fontFamily"] is NSNull, "Switching to a theme with the book's own font clears the last one")
+        XCTAssertTrue(object["lineHeight"] is NSNull)
+    }
+
     func testScrollFadesHugTheEdges() {
         let stops = ReaderLayout.scrollFadeStops(height: 1000, safeArea: UIEdgeInsets(top: 60, left: 0, bottom: 30, right: 0))
         XCTAssertEqual(stops.count, 4)
