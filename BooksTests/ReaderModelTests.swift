@@ -38,6 +38,8 @@ final class ReaderModelTests: XCTestCase {
 
     func testBackToResultsLastsUntilTwoPagesAway() throws {
         let (model, _) = try makeModel()
+        // Saved preferences carry over between tests; this one turns pages.
+        model.preferences.pageTurn = .slide
         model.show(result(spineIndex: 1))
         XCTAssertNotNil(model.searchReturn)
         // A report from the page being left doesn't count as where the result landed.

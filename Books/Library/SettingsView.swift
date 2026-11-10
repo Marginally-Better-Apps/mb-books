@@ -63,7 +63,9 @@ struct SettingsView: View {
                         HStack {
                             Label("MB Books on GitHub", systemImage: "chevron.left.forwardslash.chevron.right")
                             Spacer()
-                            Image(systemName: "arrow.up.right").font(.footnote).foregroundStyle(.tertiary)
+                            // Explicitly gray: inside a link, plain tertiary is the tint, too faint to read.
+                            Image(systemName: "arrow.up.right").font(.footnote).foregroundStyle(Color(.tertiaryLabel))
+                                .accessibilityHidden(true)
                         }
                     }
                     .accessibilityIdentifier("settings.github")

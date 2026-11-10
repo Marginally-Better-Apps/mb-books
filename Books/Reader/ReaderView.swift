@@ -100,6 +100,12 @@ private struct ReaderScreen: View {
             ReaderContainer(model: model)
                 .ignoresSafeArea()
                 .accessibilityIdentifier("reader.content")
+                // VoiceOver can undo a delete from the page, without hunting for the banner.
+                .accessibilityActions {
+                    if model.recentlyDeleted != nil {
+                        Button("Undo Delete") { model.undoDelete() }
+                    }
+                }
             popoverAnchor
             if model.isScrollMode, model.isChromeVisible {
                 scrollBackdrop
@@ -357,10 +363,13 @@ private struct ReaderScreen: View {
             .lineLimit(1)
             .minimumScaleFactor(0.7)
             .frame(minHeight: button)
+            // Capped like the buttons beside it, so it stays in the top row; the large content viewer shows it bigger.
+            .dynamicTypeSize(...DynamicTypeSize.xxLarge)
         }
         .buttonStyle(.glass)
         .buttonBorderShape(.capsule)
         .accessibilityValue(isListenBarDocked ? Text(pagePosition) : Text(""))
+        .accessibilityShowsLargeContentViewer { Label(title, systemImage: systemImage) }
     }
 
     private var pagePosition: String {

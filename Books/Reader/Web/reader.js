@@ -21,6 +21,8 @@
     relocateTimer: null,
     layoutTimer: null,
     layoutPending: false,
+    searchRange: null,
+    searchTimer: null,
   };
 
   // ---------------------------------------------------------------------------
@@ -50,12 +52,15 @@
       .map(([name, [r, g, b]]) => `::highlight(mb-${name}){background-color:rgba(${r},${g},${b},${alpha});}`)
       .join('');
     css += '::highlight(mb-underline){text-decoration:underline;text-decoration-color:#ff3b30;text-decoration-thickness:2px;}';
-    css += '::highlight(mb-search){background-color:rgba(255,159,10,.55);}';
     // Read aloud: boxes over the sentence being spoken and the word within it (see `drawSpeech`).
     css += '#mb-speech-layer{position:absolute;left:0;top:0;width:0;height:0;pointer-events:none;z-index:2147483646;}';
     css += '#mb-speech-layer>div{position:absolute;border-radius:3px;}';
     css += `#mb-speech-layer>.sentence{background-color:rgba(10,132,255,${dark ? 0.2 : 0.12});}`;
     css += `#mb-speech-layer>.word{background-color:rgba(10,132,255,${dark ? 0.38 : 0.26});}`;
+    // A search hit, briefly. On dark pages a faint fill and an underline keep the light text readable over it.
+    css += dark
+      ? '#mb-speech-layer>.search{background-color:rgba(255,179,64,.16);box-shadow:inset 0 -2px 0 rgba(255,179,64,.9);}'
+      : '#mb-speech-layer>.search{background-color:rgba(255,159,10,.4);}';
     return css;
   }
 
@@ -227,7 +232,7 @@
     applyStyles();
     padColumns();
     // Text moved: put the read-aloud boxes back over it.
-    if (state.speech) drawSpeech();
+    if (state.speech || state.searchRange) drawSpeech();
     const info = layoutInfo();
     if (state.ready) {
       info.reason = reason;
@@ -597,10 +602,7 @@
     const range = document.createRange();
     range.setStart(a.node, a.offset);
     range.setEnd(b.node, Math.min(b.offset, b.node.length));
-    if (window.CSS && CSS.highlights) {
-      CSS.highlights.set('mb-search', new Highlight(range));
-      setTimeout(() => CSS.highlights.delete('mb-search'), 2500);
-    }
+    markSearch(range);
     const rect = range.getClientRects()[0] || range.getBoundingClientRect();
     if (isPaginated()) return { page: pageOfRect(rect) };
     const top = state.config.insets ? state.config.insets.top : 0;
@@ -706,7 +708,19 @@
     return lines;
   }
 
-  /// Draws `state.speech` (or nothing), in document coordinates so the boxes scroll with the text.
+  /// Marks a search hit for a moment after jumping to it, drawn with the read-aloud boxes for the same reason.
+  function markSearch(range) {
+    clearTimeout(state.searchTimer);
+    state.searchRange = range;
+    drawSpeech();
+    state.searchTimer = setTimeout(() => {
+      state.searchRange = null;
+      drawSpeech();
+    }, 2500);
+  }
+
+  /// Draws `state.speech` and any search hit (or nothing), in document coordinates so the boxes scroll with the
+  /// text. Returns whether the speech mark has boxes.
   function drawSpeech() {
     const layer = speechLayer();
     const boxes = [];
@@ -720,6 +734,8 @@
         if (word) for (const box of lineBoxes(word)) boxes.push(['word', box]);
       }
     }
+    const spoken = boxes.length > 0;
+    if (state.searchRange) for (const box of lineBoxes(state.searchRange)) boxes.push(['search', box]);
     while (layer.children.length < boxes.length) layer.appendChild(document.createElement('div'));
     while (layer.children.length > boxes.length) layer.lastChild.remove();
     boxes.forEach(([kind, box], i) => {
@@ -730,7 +746,7 @@
       div.style.width = `${box.right - box.left + 2}px`;
       div.style.height = `${box.bottom - box.top}px`;
     });
-    return !!speech && boxes.length > 0;
+    return !!speech && spoken;
   }
 
   /// Marks the sentence (and word) being read. `sequence` orders the calls: native code may send them out of
@@ -1022,8 +1038,18 @@
 
   window.MB = Object.freeze({
     configure(config) {
+      const modeChanged = 'mode' in config && config.mode !== state.config.mode;
       state.config = Object.assign({}, state.config, config);
       if (wrapperKind) { layoutWrapper(); return { pageCount: 1, rtl: false }; }
+      if (modeChanged) {
+        // Lines that were pushed past a column break keep that gap after the columns go, until the body is
+        // laid out from scratch.
+        applyStyles();
+        const display = document.body.style.display;
+        document.body.style.display = 'none';
+        void document.body.offsetHeight;
+        document.body.style.display = display;
+      }
       return relayout('configure');
     },
     goToPosition(position) {

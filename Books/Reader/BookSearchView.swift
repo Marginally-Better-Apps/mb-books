@@ -47,7 +47,9 @@ struct BookSearchView: View {
                 .scrollContentBackground(.hidden)
                 // Back from a result, the list picks up where the reader left it.
                 .onAppear {
-                    if let id = model.lastShownResult { proxy.scrollTo(id, anchor: .center) }
+                    guard let id = model.lastShownResult else { return }
+                    // After the rows exist, or the scroll has nothing to land on.
+                    Task { @MainActor in proxy.scrollTo(id, anchor: .center) }
                 }
             }
             .searchable(text: $model.searchQuery, placement: .navigationBarDrawer(displayMode: .always), prompt: "Search Book")
@@ -91,8 +93,9 @@ struct BookSearchView: View {
             Text(group.title ?? String(localized: "Section \(group.spineIndex + 1)"))
             if group.results.first?.id == model.searchResults.first?.id {
                 Spacer()
+                // Section headers are already secondary; another level would be too faint to read.
                 Text("^[\(model.searchResults.count) Result](inflect: true)")
-                    .font(.caption).foregroundStyle(.secondary)
+                    .font(.caption)
                     .accessibilityIdentifier("bookSearch.count")
             }
         }

@@ -435,7 +435,11 @@ final class ScreenshotTour: XCTestCase {
         }
         /// Highlights a word, so the highlight menu appears anchored to it.
         func highlight(_ text: String, _ name: String) {
-            app.webViews.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", text)).firstMatch.press(forDuration: 1.2)
+            // In scroll mode the named paragraph may have scrolled away; press the first match that's on screen.
+            let matches = app.webViews.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", text))
+            let screen = app.windows.firstMatch.frame
+            let visible = matches.allElementsBoundByIndex.first { $0.frame.minY > screen.minY + 120 && $0.frame.minY < screen.maxY - 160 }
+            (visible ?? matches.firstMatch).press(forDuration: 1.2)
             if app.menuItems["Highlight"].waitForExistence(timeout: 3) {
                 app.menuItems["Highlight"].tap()
                 save(name)
@@ -469,7 +473,7 @@ final class ScreenshotTour: XCTestCase {
             app.swipeUp()
             sleep(1)
             save("\(label)-07-scroll")
-            highlight("Paragraph 6", "\(label)-07b-scroll-highlight")
+            highlight("Paragraph", "\(label)-07b-scroll-highlight")
             showChrome()
             app.buttons["reader.menu"].tap()
             app.buttons["reader.menu.contents"].tap()

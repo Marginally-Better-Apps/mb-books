@@ -167,14 +167,18 @@ struct ListenSettingsView: View {
                 }
             }
         }
-        .presentationDetents([.large])
+        .presentationDetents([.medium, .large])
         .onAppear { session.prewarm() }
         .onDisappear { VoicePreview.shared.stop() }
     }
 
-    /// The voice that reads now: a natural voice once they're installed, otherwise the Apple voice.
+    /// The voice that reads now: a natural voice once they're installed, otherwise the Apple voice. While they
+    /// download, the chosen natural voice, so the choice reads as kept.
     private var voiceName: String {
-        switch session.resolvedVoice {
+        if case .downloading = NeuralVoiceStore.shared.state, let natural = session.preferences.naturalVoice {
+            return String(localized: "\(natural.name), after download")
+        }
+        return switch session.resolvedVoice {
         case .natural(let voice): voice.name
         case .system(let identifier):
             SystemVoices.voice(for: session.language, preferred: identifier)?.name ?? String(localized: "Default")
