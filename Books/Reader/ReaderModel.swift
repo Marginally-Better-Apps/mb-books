@@ -26,7 +26,7 @@ struct TextSelection: Decodable {
     let text: String
     let start: String
     let end: String
-    let bounds: Rect
+    var bounds: Rect
     let progression: Double
 
     var rect: CGRect { CGRect(x: bounds.x, y: bounds.y, width: bounds.width, height: bounds.height) }
@@ -167,6 +167,8 @@ final class ReaderModel {
     private var searchedQuery: String?
     /// Set after jumping to a search result, while the reader offers a way back to the results.
     private(set) var searchReturn: SearchReturn?
+    /// The search result last opened, which the search sheet scrolls back to and marks.
+    private(set) var lastShownResult: BookSearchResult.ID?
     /// The highlight or bookmark just deleted, offered back for a few seconds.
     private(set) var recentlyDeleted: DeletedAnnotation?
     private var undoExpiry: Task<Void, Never>?
@@ -410,10 +412,13 @@ final class ReaderModel {
         if deleted.kind == .bookmark { Task { await refreshBookmarkState() } }
         recentlyDeleted = deleted
         AccessibilityNotification.Announcement(deleted.kind == .highlight
-            ? String(localized: "Highlight deleted") : String(localized: "Bookmark deleted")).post()
+            ? String(localized: "Highlight deleted. Undo is available.")
+            : String(localized: "Bookmark deleted. Undo is available.")).post()
         undoExpiry?.cancel()
+        // VoiceOver users need longer to reach the Undo button.
+        let duration = UIAccessibility.isVoiceOverRunning ? Self.voiceOverUndoDuration : Self.undoDuration
         undoExpiry = Task { [weak self] in
-            try? await Task.sleep(for: Self.undoDuration)
+            try? await Task.sleep(for: duration)
             guard !Task.isCancelled, self?.recentlyDeleted == deleted else { return }
             self?.recentlyDeleted = nil
         }
@@ -430,6 +435,7 @@ final class ReaderModel {
     }
 
     static let undoDuration: Duration = .seconds(6)
+    static let voiceOverUndoDuration: Duration = .seconds(20)
 
     private func remove(_ annotation: Annotation) {
         if popover.map({ if case .highlight(annotation.id) = $0.content { true } else { false } }) == true {
@@ -470,6 +476,7 @@ final class ReaderModel {
     func show(_ result: BookSearchResult) {
         sheet = nil
         userDidNavigate()
+        lastShownResult = result.id
         searchReturn = SearchReturn(spineIndex: result.spineIndex)
         navigator?.show(result)
     }

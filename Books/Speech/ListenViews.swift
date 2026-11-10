@@ -128,22 +128,16 @@ struct ListenSettingsView: View {
 
     @Environment(\.dismiss) private var dismiss
 
-    /// Until the natural voices are installed, the Apple voices come first: they're the ones that read right now.
-    /// Decided when the sheet opens, so finishing a download doesn't reorder the list under the reader's finger.
-    @State private var listsNaturalVoicesFirst = NeuralVoiceStore.shared.isReady
-
     var body: some View {
         NavigationStack {
             Form {
-                if listsNaturalVoicesFirst {
-                    if session.supportsNaturalVoices { NaturalVoicesSection(session: session) }
-                    SystemVoicesSection(session: session)
-                } else {
-                    SystemVoicesSection(session: session)
-                    if session.supportsNaturalVoices { NaturalVoicesSection(session: session) }
-                }
-
                 Section("Playback") {
+                    NavigationLink {
+                        VoicePicker(session: session)
+                    } label: {
+                        LabeledContent("Voice", value: voiceName)
+                    }
+                    .accessibilityIdentifier("listen.voice")
                     Picker("Speed", selection: $session.preferences.speed) {
                         ForEach(ListeningPreferences.speeds, id: \.self) { speed in
                             Text(ListenBar.speedLabel(speed)).tag(speed)
@@ -172,10 +166,43 @@ struct ListenSettingsView: View {
                         .accessibilityIdentifier("listen.done")
                 }
             }
-            .sensoryFeedback(.selection, trigger: voiceSelection)
         }
         .presentationDetents([.large])
         .onAppear { session.prewarm() }
+        .onDisappear { VoicePreview.shared.stop() }
+    }
+
+    /// The voice that reads now: a natural voice once they're installed, otherwise the Apple voice.
+    private var voiceName: String {
+        switch session.resolvedVoice {
+        case .natural(let voice): voice.name
+        case .system(let identifier):
+            SystemVoices.voice(for: session.language, preferred: identifier)?.name ?? String(localized: "Default")
+        }
+    }
+}
+
+/// Every voice that can read the book, with samples to hear before choosing.
+private struct VoicePicker: View {
+    @Bindable var session: ListeningSession
+
+    /// Until the natural voices are installed, the Apple voices come first: they're the ones that read right now.
+    /// Decided when the list opens, so finishing a download doesn't reorder it under the reader's finger.
+    @State private var listsNaturalVoicesFirst = NeuralVoiceStore.shared.isReady
+
+    var body: some View {
+        Form {
+            if listsNaturalVoicesFirst {
+                if session.supportsNaturalVoices { NaturalVoicesSection(session: session) }
+                SystemVoicesSection(session: session)
+            } else {
+                SystemVoicesSection(session: session)
+                if session.supportsNaturalVoices { NaturalVoicesSection(session: session) }
+            }
+        }
+        .navigationTitle("Voice")
+        .navigationBarTitleDisplayMode(.inline)
+        .sensoryFeedback(.selection, trigger: voiceSelection)
         .onDisappear { VoicePreview.shared.stop() }
     }
 
@@ -278,7 +305,7 @@ private struct NaturalVoicesSection: View {
         } footer: {
             VStack(alignment: .leading, spacing: 6) {
                 if !store.isReady && !store.isDownloading {
-                    Text("Preview any voice, then download them to use one.")
+                    Text("Play a sample to hear any voice. Natural voices are a one-time download.")
                 }
                 Text("Natural voices run entirely on this device, so nothing you read is sent anywhere. They read English books.")
             }
@@ -373,7 +400,8 @@ struct VoiceModelRow: View {
                 HStack {
                     Label("Download Natural Voices", systemImage: "arrow.down.circle")
                     Spacer()
-                    Text(ByteCountFormatStyle().format(NeuralVoiceCatalog.downloadSize)).foregroundStyle(.secondary)
+                    // Plain secondary here would be the button's dimmed tint, too faint to read.
+                    Text(ByteCountFormatStyle().format(NeuralVoiceCatalog.downloadSize)).foregroundStyle(Color(.secondaryLabel))
                 }
             }
             .accessibilityIdentifier("listen.downloadModel")

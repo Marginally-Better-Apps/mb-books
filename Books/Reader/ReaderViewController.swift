@@ -128,6 +128,8 @@ final class ReaderViewController: UIViewController {
         updateScrollFades()
         if lastLayoutSize == .zero {
             lastLayoutSize = size
+            // Chapters are made before the safe area is known; their pages take its inset now.
+            updatePageInsets()
             spreadPlan = makeSpreadPlan()
             installUserScripts()
             go(to: model.location, animated: false)
@@ -139,6 +141,7 @@ final class ReaderViewController: UIViewController {
 
     override func viewSafeAreaInsetsDidChange() {
         super.viewSafeAreaInsetsDidChange()
+        updatePageInsets()
         if lastLayoutSize != .zero { scheduleReconfigure() }
     }
 
@@ -1019,7 +1022,11 @@ extension ReaderViewController: ReaderNavigator {
         guard let value = try? await call("return JSON.stringify(MB.selection())") as? String,
               let data = value.data(using: .utf8)
         else { return nil }
-        return try? JSONDecoder().decode(TextSelection.self, from: data)
+        guard var selection = try? JSONDecoder().decode(TextSelection.self, from: data) else { return nil }
+        // In the reader's coordinates rather than the inset page's, like `pageRect`.
+        let bounds = selection.bounds
+        selection.bounds = .init(x: bounds.x + current.horizontalInset, y: bounds.y, width: bounds.width, height: bounds.height)
+        return selection
     }
 
     func clearSelection() {

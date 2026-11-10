@@ -76,6 +76,7 @@ private struct ReaderScreen: View {
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.accessibilityVoiceOverEnabled) private var voiceOverEnabled
+    @Environment(\.undoManager) private var undoManager
     @Environment(OrientationLock.self) private var orientationLock
     @Namespace private var glass
     @State private var isMenuOpen = false
@@ -148,6 +149,14 @@ private struct ReaderScreen: View {
             if phase == .active { model.startReadingClock() } else { model.stopReadingClock() }
         }
         .onChange(of: model.isChromeVisible) { _, visible in if !visible { setMenu(open: false) } }
+        // Shake to undo works too, for as long as the Undo banner offers it.
+        .onChange(of: model.recentlyDeleted) { _, deleted in
+            undoManager?.removeAllActions(withTarget: model)
+            guard let deleted else { return }
+            undoManager?.registerUndo(withTarget: model) { $0.undoDelete() }
+            undoManager?.setActionName(deleted.kind == .highlight
+                ? String(localized: "Delete Highlight") : String(localized: "Delete Bookmark"))
+        }
         .onChange(of: model.listening?.failureMessage) { _, message in
             if let message { AccessibilityNotification.Announcement(message).post() }
         }
@@ -309,20 +318,16 @@ private struct ReaderScreen: View {
     @ViewBuilder
     private var titleSlot: some View {
         if let session = model.listening, session.isActive, !session.isFollowing {
-            withPageCaption { compact in
-                capsuleButton("Return to Narration", systemImage: "arrow.uturn.backward", compact: compact) {
-                    session.returnToNarration()
-                }
-                .accessibilityIdentifier("listen.return")
+            capsuleButton("Return to Narration", systemImage: "arrow.uturn.backward") {
+                session.returnToNarration()
             }
+            .accessibilityIdentifier("listen.return")
         } else if model.searchReturn != nil {
-            withPageCaption { compact in
-                capsuleButton("Results", systemImage: "chevron.backward", compact: compact) {
-                    model.returnToSearchResults()
-                }
-                .accessibilityLabel("Back to Search Results")
-                .accessibilityIdentifier("reader.backToResults")
+            capsuleButton("Results", systemImage: "chevron.backward") {
+                model.returnToSearchResults()
             }
+            .accessibilityLabel("Back to Search Results")
+            .accessibilityIdentifier("reader.backToResults")
         } else {
             VStack(spacing: 1) {
                 Text(model.book.title)
@@ -335,35 +340,31 @@ private struct ReaderScreen: View {
         }
     }
 
-    /// A capsule in the title's place, with the page position under it while the listening bar is docked:
-    /// at full size if both fit in the top row, otherwise with a smaller capsule.
-    @ViewBuilder
-    private func withPageCaption<Capsule: View>(@ViewBuilder _ capsule: (_ compact: Bool) -> Capsule) -> some View {
-        let full = capsule(false)
-        if isListenBarDocked {
-            let compact = capsule(true)
-            ViewThatFits(in: .vertical) {
-                VStack(spacing: 1) { full; pageLabel(.caption2) }
-                VStack(spacing: 1) { compact; pageLabel(.caption2) }
-            }
-            .frame(maxHeight: button + 14)
-        } else {
-            full
-        }
-    }
-
-    private func capsuleButton(_ title: LocalizedStringKey, systemImage: String, compact: Bool,
+    /// A capsule in the title's place. While the listening bar is docked, the page position it covers
+    /// rides along as a second line, so the capsule keeps a full-size target.
+    private func capsuleButton(_ title: LocalizedStringKey, systemImage: String,
                                action: @escaping () -> Void) -> some View {
         Button(action: action) {
-            Label(title, systemImage: systemImage)
-                .font(compact ? .caption.weight(.semibold) : .footnote.weight(.semibold))
-                .lineLimit(1)
-                .minimumScaleFactor(0.7)
-                .frame(minHeight: compact ? nil : button)
+            VStack(spacing: 0) {
+                Label(title, systemImage: systemImage)
+                    .font(.footnote.weight(.semibold))
+                if isListenBarDocked {
+                    Text(pagePosition)
+                        .font(.caption2.monospacedDigit())
+                        .foregroundStyle(.secondary)
+                }
+            }
+            .lineLimit(1)
+            .minimumScaleFactor(0.7)
+            .frame(minHeight: button)
         }
         .buttonStyle(.glass)
         .buttonBorderShape(.capsule)
-        .controlSize(compact ? .small : .regular)
+        .accessibilityValue(isListenBarDocked ? Text(pagePosition) : Text(""))
+    }
+
+    private var pagePosition: String {
+        model.showsPagesLeft && !model.isFixedLayout && !model.isScrollMode ? model.pagesLeftLabel : model.pageLabel
     }
 
     /// "12 of 340", or the pages left in the chapter; tapping switches between them.
@@ -371,8 +372,7 @@ private struct ReaderScreen: View {
         Button {
             model.showsPagesLeft.toggle()
         } label: {
-            Text(model.showsPagesLeft && !model.isFixedLayout && !model.isScrollMode
-                 ? model.pagesLeftLabel : model.pageLabel)
+            Text(pagePosition)
                 .font(font.monospacedDigit())
                 .foregroundStyle(model.palette.secondaryColor)
                 .lineLimit(1)
@@ -543,44 +543,62 @@ private extension View {
     }
 }
 
-/// Sets the interface style of the presentation it's placed in, and only that presentation.
-private struct PresentationAppearance: UIViewControllerRepresentable {
+/// Sets the interface style of the presentation it's placed in, and only that presentation: the presented
+/// controller for its content and toolbar, and its presentation controller for the sheet's own glass.
+private struct PresentationAppearance: UIViewRepresentable {
     let style: UIUserInterfaceStyle
 
-    func makeUIViewController(context: Context) -> Controller { Controller(style: style) }
+    func makeUIView(context: Context) -> Probe { Probe(style: style) }
 
-    func updateUIViewController(_ controller: Controller, context: Context) {
-        controller.style = style
-        controller.apply()
+    func updateUIView(_ probe: Probe, context: Context) {
+        probe.style = style
+        probe.apply()
     }
 
-    final class Controller: UIViewController {
+    final class Probe: UIView {
         var style: UIUserInterfaceStyle
 
         init(style: UIUserInterfaceStyle) {
             self.style = style
-            super.init(nibName: nil, bundle: nil)
+            super.init(frame: .zero)
+            isUserInteractionEnabled = false
+            isAccessibilityElement = false
         }
 
         @available(*, unavailable)
         required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 
-        override func didMove(toParent parent: UIViewController?) {
-            super.didMove(toParent: parent)
+        override func didMoveToWindow() {
+            super.didMoveToWindow()
             apply()
         }
 
-        override func viewWillAppear(_ animated: Bool) {
-            super.viewWillAppear(animated)
-            apply()
-        }
-
-        /// The presented controller is the root of this controller's parent chain.
+        /// Changing traits while SwiftUI adds this view to the hierarchy throws inside Auto Layout, so the
+        /// change waits for the current layout pass to finish.
         func apply() {
-            var root: UIViewController = self
-            while let parent = root.parent { root = parent }
-            guard root.presentingViewController != nil else { return }
-            root.overrideUserInterfaceStyle = style
+            DispatchQueue.main.async { [weak self] in self?.applyNow() }
+        }
+
+        /// Finds the presented controller up the responder chain: the outermost one, which something presented.
+        private func applyNow() {
+            guard window != nil else { return }
+            var presented: UIViewController?
+            var responder: UIResponder? = self
+            while let next = responder?.next {
+                if let controller = next as? UIViewController, controller.parent == nil,
+                   controller.presentingViewController != nil {
+                    presented = controller
+                    break
+                }
+                responder = next
+            }
+            guard let presented else { return }
+            if presented.overrideUserInterfaceStyle != style { presented.overrideUserInterfaceStyle = style }
+            // Reading an override that was never set asserts, so compare against the resolved traits.
+            if let presentation = presented.presentationController,
+               presentation.traitCollection.userInterfaceStyle != style {
+                presentation.traitOverrides.userInterfaceStyle = style
+            }
         }
     }
 }

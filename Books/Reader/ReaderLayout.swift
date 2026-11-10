@@ -2,9 +2,9 @@ import UIKit
 
 /// Page geometry for reflowable text on any screen, from iPhone to a 13-inch iPad.
 struct ReaderLayout: Equatable {
-    /// The longest comfortable line, in points at the default font size and margins (about 65 characters).
+    /// The longest comfortable line, in points at the default font size and margins (about 70 characters of a serif).
     /// On wide screens the margins grow so lines don't get longer than this.
-    static let readableMeasure: CGFloat = 560
+    static let readableMeasure: CGFloat = 480
 
     let top: CGFloat
     let bottom: CGFloat

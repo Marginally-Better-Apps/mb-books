@@ -7,6 +7,9 @@ nonisolated struct BookSearchResult: Identifiable, Hashable, Sendable {
     let before: String
     let match: String
     let after: String
+    /// Whether the snippet is cut short of its paragraph's start or end, so it shows an ellipsis there.
+    var continuesBefore = false
+    var continuesAfter = false
     /// UTF-16 offset of the match in the document's body text, which matches JavaScript string offsets.
     let offset: Int
     /// Index of this match among case-insensitive matches in the document.
@@ -55,6 +58,8 @@ nonisolated enum BookSearcher {
                     before: before,
                     match: source.substring(with: found),
                     after: after,
+                    continuesBefore: beforeStart > blockStart,
+                    continuesAfter: afterEnd < blockEnd,
                     offset: found.location,
                     occurrence: occurrence))
                 occurrence += 1

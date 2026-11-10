@@ -233,13 +233,17 @@ final class ScreenshotTour: XCTestCase {
         sleep(2)
         save("06-whats-read")
         app.navigationBars.buttons.element(boundBy: 0).tap()
-        for _ in 0..<8 where !app.buttons["voice.preview.george"].isHittable { app.swipeDown() }
+        for _ in 0..<8 where !app.buttons["listen.voice"].isHittable { app.swipeDown() }
+        app.buttons["listen.voice"].tap()
+        for _ in 0..<8 where !app.buttons["voice.preview.george"].isHittable { app.swipeUp() }
         save("07-voices")
         app.buttons["voice.preview.george"].tap()
         save("08-preview")
         let appleVoice = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'voice.select.com.apple'")).firstMatch
         for _ in 0..<8 where !(appleVoice.exists && appleVoice.isHittable) { app.swipeDown() }
         save("09-apple-voices")
+        app.navigationBars.buttons.element(boundBy: 0).tap()
+        _ = app.buttons["listen.done"].waitForExistence(timeout: 3)
         app.buttons["listen.done"].tap()
         app.swipeLeft()
         sleep(2)
@@ -356,7 +360,9 @@ final class ScreenshotTour: XCTestCase {
         app.buttons["reader.listen"].tap()
         sleep(1)
         save("01-voices")
+        app.buttons["listen.voice"].tap()
         app.buttons["voice.select.bill_boerst"].tap()
+        app.navigationBars.buttons.element(boundBy: 0).tap()
         app.buttons["listen.done"].tap()
         for second in 0..<8 {
             sleep(2)

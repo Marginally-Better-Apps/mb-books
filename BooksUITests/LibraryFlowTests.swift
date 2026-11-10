@@ -185,6 +185,10 @@ final class LibraryFlowTests: XCTestCase {
         XCTAssertTrue(wait(for: playPause, toMatch: "label == 'Play'"))
 
         app.buttons["reader.listen"].tap()
+        // Voices have a page of their own in the listening options.
+        XCTAssertTrue(app.buttons["listen.voice"].waitForExistence(timeout: 5))
+        app.buttons["listen.voice"].tap()
+
         // Choose a different Apple voice while paused. Until natural voices are installed, Apple voices come first.
         let systemVoices = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'voice.select.com.apple'"))
         var identifier: String?
@@ -192,7 +196,7 @@ final class LibraryFlowTests: XCTestCase {
             // Let the list stop coasting, or the tap only stops the scroll.
             sleep(1)
             // Rows under the sheet's translucent header still count as hittable; take one well inside the list.
-            let top = app.buttons["listen.done"].frame.maxY + 60
+            let top = app.navigationBars.firstMatch.frame.maxY + 60
             identifier = systemVoices.allElementsBoundByIndex
                 .first { $0.isHittable && !$0.isSelected && $0.frame.minY > top }?.identifier
             if identifier == nil { app.swipeUp() }
@@ -209,6 +213,8 @@ final class LibraryFlowTests: XCTestCase {
         XCTAssertTrue(wait(for: naturalPreview, toMatch: "label == 'Stop Sample'"), "The sample plays")
         naturalPreview.tap()
         XCTAssertTrue(wait(for: naturalPreview, toMatch: "label BEGINSWITH 'Play Sample'"))
+        app.navigationBars.buttons.element(boundBy: 0).tap()
+        XCTAssertTrue(app.buttons["listen.done"].waitForExistence(timeout: 5))
         app.buttons["listen.done"].tap()
 
         showChrome()

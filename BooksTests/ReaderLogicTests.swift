@@ -240,8 +240,8 @@ final class ReaderLogicTests: XCTestCase {
         XCTAssertLessThan(2 * layout.side, columnText / 4, "The gutter is a normal reading gutter")
 
         let portrait = ReaderLayout(size: CGSize(width: 402, height: 874), safeArea: UIEdgeInsets(top: 62, left: 0, bottom: 34, right: 0),
-                                    margins: 1.5, fontScale: 1, scrolls: false, allowsColumns: true)
-        XCTAssertEqual(portrait.side, 36, "The margin setting applies in full")
+                                    margins: 1.25, fontScale: 1, scrolls: false, allowsColumns: true)
+        XCTAssertEqual(portrait.side, 30, "The margin setting applies in full")
         XCTAssertEqual(portrait.inset, 0)
 
         let scrolling = ReaderLayout(size: CGSize(width: 874, height: 402), safeArea: safeArea,
