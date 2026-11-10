@@ -44,24 +44,30 @@
   const isPaginated = () => !isFixed() && state.config.mode !== 'scroll';
 
   function highlightCSS(dark) {
-    const alpha = dark ? 0.38 : 0.42;
     const colors = {
       yellow: [255, 214, 51], green: [116, 217, 102], blue: [102, 178, 255], pink: [255, 128, 166], purple: [184, 140, 255],
     };
-    let css = Object.entries(colors)
-      .map(([name, [r, g, b]]) => `::highlight(mb-${name}){background-color:rgba(${r},${g},${b},${alpha});}`)
-      .join('');
+    // On dark pages, highlighted text turns white over a lighter fill, so it stays readable (4.5:1 or better).
+    const style = dark
+      ? ([r, g, b]) => `color:#fff;background-color:rgba(${r},${g},${b},0.3);`
+      : ([r, g, b]) => `background-color:rgba(${r},${g},${b},0.42);`;
+    let css = Object.entries(colors).map(([name, rgb]) => `::highlight(mb-${name}){${style(rgb)}}`).join('');
     css += '::highlight(mb-underline){text-decoration:underline;text-decoration-color:#ff3b30;text-decoration-thickness:2px;}';
-    // Read aloud: boxes over the sentence being spoken and the word within it (see `drawSpeech`).
+    // Read aloud: boxes over the sentence being spoken and the word within it (see `drawSpeech`), and a search hit,
+    // briefly. On light pages they tint over the text, the search fill multiplying so the ink stays dark. On dark
+    // pages they sit behind the text in deep tints, since any tint over light text washes it out.
     css += '#mb-speech-layer{position:absolute;left:0;top:0;width:0;height:0;pointer-events:none;z-index:2147483646;}';
     css += '#mb-speech-layer>div{position:absolute;border-radius:3px;}';
-    css += `#mb-speech-layer>.sentence{background-color:rgba(10,132,255,${dark ? 0.2 : 0.12});}`;
-    css += `#mb-speech-layer>.word{background-color:rgba(10,132,255,${dark ? 0.38 : 0.26});}`;
-    // A search hit, briefly. On dark pages a faint fill and an underline keep the light text readable over it;
-    // on light pages the fill multiplies, darkening the paper but not the ink.
-    css += dark
-      ? '#mb-speech-layer>.search{background-color:rgba(255,179,64,.16);box-shadow:inset 0 -2px 0 rgba(255,179,64,.9);}'
-      : '#mb-speech-layer>.search{background-color:rgba(255,159,10,.4);mix-blend-mode:multiply;}';
+    if (dark) {
+      css += '#mb-speech-layer{z-index:-1;}';
+      css += '#mb-speech-layer>.sentence{background-color:rgba(20,60,130,.5);}';
+      css += '#mb-speech-layer>.word{background-color:rgba(10,50,140,.7);}';
+      css += '#mb-speech-layer>.search{background-color:rgba(100,62,8,.6);box-shadow:inset 0 -2px 0 rgba(255,179,64,.9);}';
+    } else {
+      css += '#mb-speech-layer>.sentence{background-color:rgba(10,132,255,.12);}';
+      css += '#mb-speech-layer>.word{background-color:rgba(10,132,255,.26);}';
+      css += '#mb-speech-layer>.search{background-color:rgba(255,159,10,.4);mix-blend-mode:multiply;}';
+    }
     return css;
   }
 
@@ -106,7 +112,8 @@
     rules.push('img,video{object-fit:contain;height:auto;}');
 
     if (colors.override) {
-      rules.push('html,body{color:var(--mb-text) !important;}');
+      // The page color is on <html>; a clear body also lets dark pages' read-aloud boxes show behind the text.
+      rules.push('html,body{color:var(--mb-text) !important;}body{background-color:transparent !important;}');
       rules.push('body :not(img):not(svg):not(svg *):not(video):not(math):not(math *):not(canvas){' +
         'color:inherit !important;background-color:transparent !important;border-color:currentColor;}');
       rules.push('body a:link,body a:visited,body a:link *,body a:visited *{color:var(--mb-link) !important;}');

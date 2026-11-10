@@ -391,6 +391,8 @@ private struct ReaderScreen: View {
                 .contentShape(.rect)
         }
         .buttonStyle(.plain)
+        // Capped wherever it sits, so the bottom row stays inside the page's margin too.
+        .dynamicTypeSize(...DynamicTypeSize.xxLarge)
         .accessibilityShowsLargeContentViewer { Text(pagePosition) }
         .accessibilityIdentifier("reader.pageLabel")
     }

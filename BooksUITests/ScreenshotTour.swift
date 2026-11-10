@@ -241,6 +241,7 @@ final class ScreenshotTour: XCTestCase {
         save("08-preview")
         let appleVoice = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'voice.select.com.apple'")).firstMatch
         for _ in 0..<8 where !(appleVoice.exists && appleVoice.isHittable) { app.swipeDown() }
+        appleVoice.tap()
         save("09-apple-voices")
         app.navigationBars.buttons.element(boundBy: 0).tap()
         _ = app.buttons["listen.done"].waitForExistence(timeout: 3)

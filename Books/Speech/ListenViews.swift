@@ -129,6 +129,7 @@ struct ListenSettingsView: View {
     @Environment(\.dismiss) private var dismiss
     /// Opens at medium so the page being read stays in view; the long voice list takes the full height.
     @State private var detent = PresentationDetent.medium
+    @State private var detentBeforeVoices = PresentationDetent.medium
 
     var body: some View {
         NavigationStack {
@@ -136,7 +137,11 @@ struct ListenSettingsView: View {
                 Section("Playback") {
                     NavigationLink {
                         VoicePicker(session: session)
-                            .onAppear { detent = .large }
+                            .onAppear {
+                                detentBeforeVoices = detent
+                                detent = .large
+                            }
+                            .onDisappear { detent = detentBeforeVoices }
                     } label: {
                         LabeledContent("Voice", value: voiceName)
                     }
