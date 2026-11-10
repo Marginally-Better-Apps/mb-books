@@ -52,7 +52,8 @@
       ? ([r, g, b]) => `color:#fff;background-color:rgba(${r},${g},${b},0.3);`
       : ([r, g, b]) => `background-color:rgba(${r},${g},${b},0.42);`;
     let css = Object.entries(colors).map(([name, rgb]) => `::highlight(mb-${name}){${style(rgb)}}`).join('');
-    css += '::highlight(mb-underline){text-decoration:underline;text-decoration-color:#ff3b30;text-decoration-thickness:2px;}';
+    css += `::highlight(mb-underline){text-decoration:underline;text-decoration-color:${dark ? '#ff6961' : '#ff3b30'};` +
+      'text-decoration-thickness:2px;}';
     // Read aloud: boxes over the sentence being spoken and the word within it (see `drawSpeech`), and a search hit,
     // briefly. On light pages they tint over the text, the search fill multiplying so the ink stays dark. On dark
     // pages they sit behind the text in deep tints, since any tint over light text washes it out.
@@ -61,7 +62,7 @@
     if (dark) {
       css += '#mb-speech-layer{z-index:-1;}';
       css += '#mb-speech-layer>.sentence{background-color:rgba(20,60,130,.5);}';
-      css += '#mb-speech-layer>.word{background-color:rgba(10,50,140,.7);}';
+      css += '#mb-speech-layer>.word{background-color:rgba(10,50,140,.85);}';
       css += '#mb-speech-layer>.search{background-color:rgba(100,62,8,.6);box-shadow:inset 0 -2px 0 rgba(255,179,64,.9);}';
     } else {
       css += '#mb-speech-layer>.sentence{background-color:rgba(10,132,255,.12);}';
@@ -113,7 +114,8 @@
 
     if (colors.override) {
       // The page color is on <html>; a clear body also lets dark pages' read-aloud boxes show behind the text.
-      rules.push('html,body{color:var(--mb-text) !important;}body{background-color:transparent !important;}');
+      rules.push('html,body{color:var(--mb-text) !important;}' +
+        'body{background-color:transparent !important;background-image:none !important;}');
       rules.push('body :not(img):not(svg):not(svg *):not(video):not(math):not(math *):not(canvas){' +
         'color:inherit !important;background-color:transparent !important;border-color:currentColor;}');
       rules.push('body a:link,body a:visited,body a:link *,body a:visited *{color:var(--mb-link) !important;}');
