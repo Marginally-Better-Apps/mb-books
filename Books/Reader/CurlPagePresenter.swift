@@ -16,6 +16,8 @@ final class CurlPagePresenter: UIViewController, PageTurnPresenting {
     private var interactiveTurn: PageTurn?
     /// A turn started by a tap or key press.
     private var performedTurn: PageTurn?
+    /// Whether a dragged curl is animating, from when UIKit starts it until it reports the end.
+    private var isCurling = false
 
     var isTurning: Bool { interactiveTurn != nil || performedTurn != nil }
 
@@ -82,7 +84,9 @@ final class CurlPagePresenter: UIViewController, PageTurnPresenting {
 
     /// Prepares the page a curl reveals.
     private func incomingSlot(toward side: PageTurn.Side) -> UIViewController? {
-        guard performedTurn == nil else { return nil }
+        // UIKit asks again as a new swipe starts, even while the last curl is still finishing. Discarding that
+        // curl here would undo a turn UIKit then completes, and count its finish for the new one.
+        guard performedTurn == nil, !isCurling else { return nil }
         if let stale = interactiveTurn {
             // Asked again without a transition in between; put the first turn back.
             Self.logger.debug("Discarding a curl that never started")
@@ -109,8 +113,14 @@ extension CurlPagePresenter: UIPageViewControllerDataSource, UIPageViewControlle
         incomingSlot(toward: isMirrored ? .left : .right)
     }
 
+    func pageViewController(_ pageViewController: UIPageViewController,
+                            willTransitionTo pendingViewControllers: [UIViewController]) {
+        isCurling = interactiveTurn != nil
+    }
+
     func pageViewController(_ pageViewController: UIPageViewController, didFinishAnimating finished: Bool,
                             previousViewControllers: [UIViewController], transitionCompleted completed: Bool) {
+        isCurling = false
         guard let turn = interactiveTurn else { return }
         interactiveTurn = nil
         turn.finish(completed: completed)
