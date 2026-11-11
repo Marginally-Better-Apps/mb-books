@@ -412,6 +412,95 @@ final class ScreenshotTour: XCTestCase {
         }
     }
 
+    /// Hammers page turns in each style, in bursts of taps and flicks across chapter boundaries, and saves a
+    /// screenshot after each burst. A page whose middle is one flat color is blank. Writes `stress.txt`.
+    /// Uses the first book in `MB_TOUR_DIR` if set (longer books cross more chapters), otherwise the sample book.
+    func testPageTurnStressTour() throws {
+        let environment = ProcessInfo.processInfo.environment
+        guard let output = environment["MB_TOUR_OUTPUT"] else {
+            throw XCTSkip("Set MB_TOUR_OUTPUT to run the screenshot tour.")
+        }
+        let outputURL = URL(filePath: output)
+        try FileManager.default.createDirectory(at: outputURL, withIntermediateDirectories: true)
+        let app = XCUIApplication()
+        if let books = environment["MB_TOUR_DIR"] {
+            app.launchArguments = ["-ui-testing", "-import-directory", books]
+        } else {
+            app.launchArguments = ["-ui-testing", "-seed-sample-book"]
+        }
+        app.launch()
+        app.tabBars.buttons["Library"].tap()
+        let book = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'book.'")).firstMatch
+        XCTAssertTrue(book.waitForExistence(timeout: 30))
+        book.tap()
+        sleep(4)
+        func point(_ x: CGFloat) -> XCUICoordinate { app.coordinate(withNormalizedOffset: CGVector(dx: x, dy: 0.5)) }
+        func openThemes() {
+            if !app.buttons["reader.menu"].exists { point(0.5).tap() }
+            app.buttons["reader.menu"].tap()
+            app.buttons["reader.menu.themes"].tap()
+        }
+        if let theme = environment["MB_TOUR_THEME"] {
+            openThemes()
+            app.buttons["theme.\(theme)"].tap()
+            app.buttons["Close"].firstMatch.tap()
+            sleep(1)
+        }
+        var log: [String] = []
+        var blanks = 0
+        for style in ["Slide", "Curl", "Fast Fade"] {
+            openThemes()
+            app.buttons["themes.pageTurn"].tap()
+            app.buttons[style].firstMatch.tap()
+            app.buttons["Close"].firstMatch.tap()
+            sleep(1)
+            for burst in 0..<12 {
+                // Mostly forward, sometimes back, so chapter boundaries get crossed both ways mid-turn.
+                let forward = burst % 4 != 3
+                for step in 0..<12 {
+                    if step % 3 == 2 {
+                        forward ? app.swipeLeft(velocity: .fast) : app.swipeRight(velocity: .fast)
+                    } else {
+                        point(forward ? 0.95 : 0.05).tap()
+                    }
+                }
+                sleep(2)
+                let shot = XCUIScreen.main.screenshot()
+                let blank = Self.isBlank(shot.image)
+                let name = "stress-\(style.replacingOccurrences(of: " ", with: ""))-\(burst)"
+                try? shot.pngRepresentation.write(to: outputURL.appending(path: "\(name).png"))
+                log.append("\(name) blank=\(blank)")
+                if blank {
+                    blanks += 1
+                    // Does the blank page come back by itself?
+                    sleep(4)
+                    let later = XCUIScreen.main.screenshot()
+                    try? later.pngRepresentation.write(to: outputURL.appending(path: "\(name)-later.png"))
+                    log.append("\(name)-later blank=\(Self.isBlank(later.image))")
+                }
+            }
+        }
+        log.append("blanks=\(blanks)")
+        try? log.joined(separator: "\n").write(to: outputURL.appending(path: "stress.txt"), atomically: true, encoding: .utf8)
+    }
+
+    /// Whether the middle of the screen is a single flat color, with no text on it.
+    private static func isBlank(_ image: UIImage) -> Bool {
+        guard let cgImage = image.cgImage else { return false }
+        let width = 60, height = 120
+        var pixels = [UInt8](repeating: 0, count: width * height)
+        guard let context = CGContext(data: &pixels, width: width, height: height, bitsPerComponent: 8, bytesPerRow: width,
+                                      space: CGColorSpaceCreateDeviceGray(), bitmapInfo: CGImageAlphaInfo.none.rawValue)
+        else { return false }
+        // The middle 60% of the height, clear of the status bar and controls.
+        let crop = cgImage.cropping(to: CGRect(x: 0, y: Double(cgImage.height) * 0.2,
+                                               width: Double(cgImage.width), height: Double(cgImage.height) * 0.6)) ?? cgImage
+        context.interpolationQuality = .low
+        context.draw(crop, in: CGRect(x: 0, y: 0, width: width, height: height))
+        guard let low = pixels.min(), let high = pixels.max() else { return false }
+        return Int(high) - Int(low) < 12
+    }
+
     /// Captures the main screens in portrait and landscape, for checking layouts across iPhone and iPad sizes.
     func testLayoutTour() throws {
         guard let output = ProcessInfo.processInfo.environment["MB_TOUR_OUTPUT"] else {

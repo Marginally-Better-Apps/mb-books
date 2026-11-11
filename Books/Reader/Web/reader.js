@@ -21,6 +21,7 @@
     relocateTimer: null,
     layoutTimer: null,
     layoutPending: false,
+    contentPages: null,
     searchRange: null,
     searchTimer: null,
   };
@@ -207,8 +208,41 @@
 
   function pageCount() {
     if (!isPaginated()) return 1;
-    const count = Math.round(scroller().scrollWidth / pageWidth());
-    return Number.isFinite(count) ? Math.max(1, count) : 1;
+    let count = Math.round(scroller().scrollWidth / pageWidth());
+    if (!Number.isFinite(count)) return 1;
+    // A trailing page break, empty paragraph, or bottom margin can spill into columns with nothing on them.
+    if (state.contentPages) count = Math.min(count, state.contentPages);
+    return Math.max(1, count);
+  }
+
+  const visibleMedia = new Set(['img', 'svg', 'video', 'canvas', 'iframe', 'object', 'embed', 'math', 'hr', 'image']);
+
+  /// The number of pages up to and including the last one with something on it: text, or an image or other media.
+  /// Searches backward from the end of the document, since columns follow document order.
+  function countContentPages() {
+    if (!isPaginated() || !document.body) return null;
+    const width = pageWidth();
+    const pageOf = (rect) => (isRTL()
+      ? Math.floor((width - (rect.right + window.scrollX) + 1) / width)
+      : Math.floor((rect.left + window.scrollX + 1) / width));
+    const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT | NodeFilter.SHOW_ELEMENT);
+    let node = document.body;
+    while (node.lastChild) node = node.lastChild;
+    walker.currentNode = node;
+    for (let n = node, steps = 0; n && steps < 5000; n = walker.previousNode(), steps += 1) {
+      let rects = [];
+      if (n.nodeType === Node.TEXT_NODE) {
+        if (!/\S/.test(n.data)) continue;
+        const range = document.createRange();
+        range.selectNodeContents(n);
+        rects = Array.from(range.getClientRects());
+      } else if (visibleMedia.has(n.localName)) {
+        rects = [n.getBoundingClientRect()];
+      }
+      const last = rects.filter((rect) => rect.width > 0 && rect.height > 0).pop();
+      if (last) return Math.max(0, pageOf(last)) + 1;
+    }
+    return null;
   }
 
   /// Keeps the scroll width a whole number of pages when multiple columns leave a half page.
@@ -241,6 +275,8 @@
     state.textNodes = null;
     applyStyles();
     padColumns();
+    state.contentPages = null;
+    state.contentPages = countContentPages();
     // Text moved: put the read-aloud boxes back over it.
     if (state.speech || state.searchRange) drawSpeech();
     const info = layoutInfo();
@@ -498,7 +534,7 @@
     if (selected && !selected.isCollapsed) return false;
     const width = pageWidth();
     const x = Math.abs(window.scrollX);
-    const maxX = Math.max(0, scroller().scrollWidth - width);
+    const maxX = Math.max(0, Math.min(scroller().scrollWidth - width, (pageCount() - 1) * width));
     const target = Math.min(maxX, Math.round(x / width) * width);
     if (Math.abs(x - target) <= 1) return false;
     window.scrollTo(isRTL() ? -target : target, 0);

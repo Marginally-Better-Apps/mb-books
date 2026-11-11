@@ -26,6 +26,8 @@ final class ChapterView: UIView {
     var isSettled = false
     /// Whether the document's own writing direction is right to left.
     private(set) var isRTL = false
+    /// Pages in the document as `reader.js` counts them, which leaves out empty columns at its end.
+    var pageCount: Int?
     var placement: Placement?
     /// Handles VoiceOver's three-finger swipes that the page itself doesn't scroll for, such as turning pages.
     var accessibilityScrollHandler: ((UIAccessibilityScrollDirection) -> Bool)?
@@ -131,6 +133,7 @@ final class ChapterView: UIView {
     /// Forgets the document, for example after its web content process ended.
     func reset() {
         document = nil
+        pageCount = nil
         isReady = false
         isSettled = false
         placement = nil

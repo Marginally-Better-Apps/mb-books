@@ -609,9 +609,12 @@ final class ReaderViewController: UIViewController {
         switch body["type"] as? String {
         case "ready":
             chapter.didBecomeReady(url: message.frameInfo.request.url, rtl: body["rtl"] as? Bool ?? false)
+            if chapter.isReady { chapter.pageCount = body["pageCount"] as? Int }
         case "layout":
+            chapter.pageCount = body["pageCount"] as? Int ?? chapter.pageCount
             didChangeLayout(chapter, body)
         case "relocated" where isCurrent:
+            chapter.pageCount = body["pageCount"] as? Int ?? chapter.pageCount
             didRelocate(body)
         case "tap" where isCurrent:
             didTap(at: CGPoint(x: body.double("x") + current.horizontalInset, y: body.double("y")))
@@ -821,7 +824,11 @@ final class ReaderViewController: UIViewController {
         guard width > 0, side == .left || side == .right else { return nil }
         let page = (scrollView.contentOffset.x / width).rounded()
         let target = (page + (side == .right ? 1 : -1)) * width
-        let maxX = max(0, scrollView.contentSize.width - width)
+        var maxX = max(0, scrollView.contentSize.width - width)
+        // Empty columns after the last text don't count as pages; turning past it goes on to the next chapter.
+        if !current.isRTL, let pageCount = current.pageCount {
+            maxX = min(maxX, CGFloat(max(pageCount - 1, 0)) * width)
+        }
         guard target >= -1, target <= maxX + 1 else { return nil }
         return CGPoint(x: min(max(target, 0), maxX), y: 0)
     }
