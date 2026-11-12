@@ -9,58 +9,60 @@ struct BookSearchView: View {
 
     var body: some View {
         NavigationStack {
-            List {
-                if model.isSearching && model.searchResults.isEmpty {
-                    HStack { Spacer(); ProgressView(); Spacer() }.listRowSeparator(.hidden)
-                } else if model.searchResults.isEmpty, model.searchQuery.count >= 2 {
-                    ContentUnavailableView.search(text: model.searchQuery).listRowSeparator(.hidden)
-                }
-                ForEach(groups, id: \.spineIndex) { group in
-                    Section {
-                        ForEach(group.results) { result in
-                            Button {
-                                model.show(result)
-                            } label: {
-                                snippet(result).font(.callout).lineLimit(3)
-                            }
-                            .buttonStyle(.plain)
+            ScrollViewReader { proxy in
+                List {
+                    Group {
+                        if model.isSearching && model.searchResults.isEmpty {
+                            HStack { Spacer(); ProgressView(); Spacer() }.listRowSeparator(.hidden)
+                        } else if model.searchResults.isEmpty, model.searchQuery.count >= 2 {
+                            ContentUnavailableView.search(text: model.searchQuery).listRowSeparator(.hidden)
                         }
-                    } header: {
-                        Text(group.title ?? String(localized: "Section \(group.spineIndex + 1)"))
+                        ForEach(groups, id: \.spineIndex) { group in
+                            Section {
+                                ForEach(group.results) { result in
+                                    let isLastShown = result.id == model.lastShownResult
+                                    Button {
+                                        model.show(result)
+                                    } label: {
+                                        snippet(result).font(.callout).lineLimit(3)
+                                    }
+                                    .buttonStyle(.plain)
+                                    .id(result.id)
+                                    .listRowBackground(isLastShown ? Color.accentColor.opacity(0.12) : Color.clear)
+                                    .accessibilityAddTraits(isLastShown ? .isSelected : [])
+                                }
+                            } header: {
+                                header(for: group)
+                            }
+                        }
+                        if model.searchResults.count >= BookSearcher.maxResults {
+                            Text("Showing the first \(BookSearcher.maxResults) results.")
+                                .font(.footnote).foregroundStyle(.secondary)
+                        }
                     }
+                    // Rows sit on the sheet, which takes the reading theme's appearance, not on a band of their own.
+                    .listRowBackground(Color.clear)
                 }
-                if model.searchResults.count >= BookSearcher.maxResults {
-                    Text("Showing the first \(BookSearcher.maxResults) results.")
-                        .font(.footnote).foregroundStyle(.secondary)
+                .listStyle(.plain)
+                .scrollContentBackground(.hidden)
+                // Back from a result, the list picks up where the reader left it.
+                .onAppear {
+                    guard let id = model.lastShownResult else { return }
+                    // After the rows exist, or the scroll has nothing to land on.
+                    Task { @MainActor in proxy.scrollTo(id, anchor: .center) }
                 }
             }
-            .listStyle(.plain)
-            .safeAreaInset(edge: .top) {
-                HStack {
-                    Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
-                    TextField("Search Book", text: $model.searchQuery)
-                        .focused($focused)
-                        .submitLabel(.search)
-                        .autocorrectionDisabled()
-                        .textInputAutocapitalization(.never)
-                        .accessibilityIdentifier("bookSearch.field")
-                    if !model.searchQuery.isEmpty {
-                        Button("Clear", systemImage: "xmark.circle.fill") { model.searchQuery = "" }
-                            .labelStyle(.iconOnly)
-                            .foregroundStyle(.secondary)
-                    }
-                }
-                .padding(.horizontal, 14)
-                .frame(height: 44)
-                .glassEffect(.regular, in: .capsule)
-                .padding(.horizontal)
-                .padding(.bottom, 8)
-            }
+            .searchable(text: $model.searchQuery, placement: .navigationBarDrawer(displayMode: .always), prompt: "Search Book")
+            .searchFocused($focused)
+            .searchPresentationToolbarBehavior(.avoidHidingContent)
+            .autocorrectionDisabled()
+            .textInputAutocapitalization(.never)
             .navigationTitle("Search Book")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
-                    Button("Done", systemImage: "xmark") { dismiss() }
+                    Button(role: .close) { dismiss() }
+                        .accessibilityIdentifier("bookSearch.close")
                 }
             }
             .task(id: model.searchQuery) {
@@ -85,7 +87,23 @@ struct BookSearchView: View {
         return output
     }
 
+    /// The chapter's title; the first chapter's header also carries the result count, rather than a section of its own.
+    private func header(for group: (spineIndex: Int, title: String?, results: [BookSearchResult])) -> some View {
+        HStack(alignment: .firstTextBaseline) {
+            Text(group.title ?? String(localized: "Section \(group.spineIndex + 1)"))
+            if group.results.first?.id == model.searchResults.first?.id {
+                Spacer()
+                // Section headers are already secondary; another level would be too faint to read.
+                Text("^[\(model.searchResults.count) Result](inflect: true)")
+                    .font(.caption)
+                    .accessibilityIdentifier("bookSearch.count")
+            }
+        }
+    }
+
     private func snippet(_ result: BookSearchResult) -> Text {
-        Text("…\(result.before)\(Text(result.match).bold().foregroundStyle(.tint))\(result.after)…")
+        let before = (result.continuesBefore ? "…" : "") + result.before
+        let after = result.after + (result.continuesAfter ? "…" : "")
+        return Text("\(before)\(Text(result.match).bold().foregroundStyle(.tint))\(after)")
     }
 }

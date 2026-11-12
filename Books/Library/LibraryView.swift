@@ -46,7 +46,7 @@ struct LibraryView: View {
             BookBrowser(books: books, sourcePrefix: "library") {
                 NavigationLink(value: "collections") {
                     HStack {
-                        Label("Collections", systemImage: "square.stack")
+                        Label("Collections", systemImage: "rectangle.stack")
                             .font(.body.weight(.medium))
                         Spacer()
                         Image(systemName: "chevron.right").font(.footnote.weight(.semibold)).foregroundStyle(.tertiary)
@@ -83,6 +83,7 @@ struct BookBrowser<Header: View>: View {
     @State private var selection: Set<UUID> = []
     @State private var isConfirmingRemoval = false
     @State private var isAddingToCollection = false
+    @State private var finishes = 0
 
     var body: some View {
         let sorted = sort.sorted(books)
@@ -100,7 +101,8 @@ struct BookBrowser<Header: View>: View {
                     LazyVStack(spacing: 0) {
                         ForEach(sorted) { book in
                             row(for: book)
-                            Divider().padding(.leading, 96)
+                            // Aligned with the titles: the row's padding, cover, and spacing.
+                            Divider().padding(.leading, 88)
                         }
                     }
                 } else {
@@ -116,26 +118,25 @@ struct BookBrowser<Header: View>: View {
         .toolbar {
             if isSelecting {
                 ToolbarItem(placement: .topBarTrailing) {
-                    Button("Done", systemImage: "checkmark") {
-                        isSelecting = false
-                        selection.removeAll()
-                    }
+                    Button(role: .confirm, action: endSelection)
+                        .accessibilityIdentifier("library.selection.done")
                 }
+                // Every bulk action ends the selection.
                 ToolbarItemGroup(placement: .bottomBar) {
-                    Button("Add to Collection", systemImage: "text.badge.plus") { isAddingToCollection = true }
+                    Button("Add to Collection", systemImage: "rectangle.stack.badge.plus") { isAddingToCollection = true }
                         .disabled(selection.isEmpty)
                     Spacer()
                     Button("Mark as Finished", systemImage: "checkmark.circle") {
                         selectedBooks.forEach { $0.markFinished(true) }
-                        isSelecting = false
-                        selection.removeAll()
+                        finishes += 1
+                        endSelection()
                     }
                     .disabled(selection.isEmpty)
                     Spacer()
                     if let collection {
                         Button("Remove from Collection", systemImage: "minus.circle") {
                             collection.books.removeAll { selection.contains($0.id) }
-                            selection.removeAll()
+                            endSelection()
                         }
                         .disabled(selection.isEmpty)
                     } else {
@@ -156,8 +157,10 @@ struct BookBrowser<Header: View>: View {
                             Label("Grid", systemImage: "square.grid.2x2").tag(false)
                             Label("List", systemImage: "list.bullet").tag(true)
                         }
-                        Picker("Sort By", selection: $sort) {
+                        Picker(selection: $sort) {
                             ForEach(LibrarySort.allCases) { Text($0.title).tag($0) }
+                        } label: {
+                            Label("Sort By", systemImage: "arrow.up.arrow.down")
                         }
                         .pickerStyle(.menu)
                     }
@@ -169,21 +172,29 @@ struct BookBrowser<Header: View>: View {
             }
         }
         .toolbar(isSelecting ? .hidden : .automatic, for: .tabBar)
-        .confirmationDialog("Remove \(selection.count) Books?", isPresented: $isConfirmingRemoval, titleVisibility: .visible) {
+        .confirmationDialog(String(inflecting: "Remove ^[\(selection.count) Book](inflect: true)?"),
+                            isPresented: $isConfirmingRemoval, titleVisibility: .visible) {
             Button("Remove from Library", role: .destructive) {
                 library.delete(selectedBooks, from: context)
-                selection.removeAll()
-                isSelecting = false
+                endSelection()
             }
         } message: {
-            Text("The books, their highlights, notes, and bookmarks will be deleted from this device.")
+            Text(selection.count == 1
+                 ? "The book, its highlights, notes, and bookmarks will be deleted from this device."
+                 : "The books, their highlights, notes, and bookmarks will be deleted from this device.")
         }
-        .sheet(isPresented: $isAddingToCollection) {
+        .sheet(isPresented: $isAddingToCollection, onDismiss: endSelection) {
             CollectionPicker(books: selectedBooks)
         }
+        .sensoryFeedback(.success, trigger: finishes)
     }
 
     private var selectedBooks: [Book] { books.filter { selection.contains($0.id) } }
+
+    private func endSelection() {
+        isSelecting = false
+        selection.removeAll()
+    }
 
     private func cell(for book: Book) -> some View {
         let source = "\(sourcePrefix)-\(book.id)"
@@ -200,7 +211,8 @@ struct BookBrowser<Header: View>: View {
             }
             .buttonStyle(.plain)
             .bookInteractions(book)
-            .accessibilityLabel(book.title)
+            .bookAccessibility(book)
+            .accessibilityAddTraits(isSelecting && selection.contains(book.id) ? .isSelected : [])
             .accessibilityIdentifier("book.\(book.title)")
             HStack {
                 BookProgressBadge(book: book)
@@ -216,22 +228,12 @@ struct BookBrowser<Header: View>: View {
             Button {
                 tap(book, source: source)
             } label: {
-                HStack(spacing: 16) {
-                    BookCover(book: book)
-                        .frame(width: 60, height: 90, alignment: .center)
-                        .zoomSource(source)
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text(book.title).font(.headline).lineLimit(2)
-                        Text(book.author).font(.subheadline).foregroundStyle(.secondary).lineLimit(1)
-                        BookProgressBadge(book: book).padding(.top, 2)
-                    }
-                    Spacer(minLength: 0)
-                    selectionMark(for: book)
-                }
-                .contentShape(.rect)
+                BookRow(book: book, source: source) { selectionMark(for: book) }
             }
             .buttonStyle(.plain)
             .bookInteractions(book)
+            .bookAccessibility(book)
+            .accessibilityAddTraits(isSelecting && selection.contains(book.id) ? .isSelected : [])
             .accessibilityIdentifier("book.\(book.title)")
             if !isSelecting { BookMenuButton(book: book) }
         }
@@ -261,53 +263,22 @@ struct BookBrowser<Header: View>: View {
     }
 }
 
-/// The "…" button under a cover.
-private struct BookMenuButton: View {
-    let book: Book
-
-    @Environment(\.modelContext) private var context
-    @Environment(LibraryStore.self) private var library
-    @State private var isConfirmingRemoval = false
-    @State private var isShowingDetails = false
-    @State private var isAddingToCollection = false
-
-    var body: some View {
-        Menu {
-            BookActions(book: book, isConfirmingRemoval: $isConfirmingRemoval,
-                        isShowingDetails: $isShowingDetails, isAddingToCollection: $isAddingToCollection)
-        } label: {
-            Image(systemName: "ellipsis")
-                .font(.body.weight(.semibold))
-                .frame(width: 44, height: 36)
-                .contentShape(.rect)
-        }
-        // Menus take the accent color; this is a quiet secondary control, as in Apple Books.
-        .tint(.secondary)
-        .padding(.trailing, -10)
-        .accessibilityLabel("More for \(book.title)")
-        .confirmationDialog("Remove “\(book.title)”?", isPresented: $isConfirmingRemoval, titleVisibility: .visible) {
-            Button("Remove from Library", role: .destructive) { library.delete([book], from: context) }
-        }
-        .sheet(isPresented: $isShowingDetails) { BookDetailView(book: book) }
-        .sheet(isPresented: $isAddingToCollection) { CollectionPicker(books: [book]) }
-    }
-}
-
 // MARK: - Collections
 
 struct CollectionsView: View {
     @Environment(\.modelContext) private var context
     @Query private var books: [Book]
     @Query(sort: \BookCollection.created) private var collections: [BookCollection]
-    @State private var isNaming = false
-    @State private var newName = ""
 
     var body: some View {
         List {
             Section {
                 link(.wantToRead, "Want to Read", "bookmark", books.filter(\.wantToRead).count)
+                    .accessibilityIdentifier("collections.wantToRead")
                 link(.finished, "Finished", "checkmark.circle", books.filter(\.isFinished).count)
-                link(.all, "Books", "book", books.count)
+                    .accessibilityIdentifier("collections.finished")
+                link(.all, "All Books", "book", books.count)
+                    .accessibilityIdentifier("collections.all")
             }
             Section("My Collections") {
                 ForEach(collections) { collection in
@@ -315,26 +286,20 @@ struct CollectionsView: View {
                         LabeledContent {
                             Text("\(collection.books.count)")
                         } label: {
-                            Label(collection.name, systemImage: "list.bullet")
+                            Label(collection.name, systemImage: "rectangle.stack")
                         }
                     }
                 }
                 .onDelete { offsets in
                     offsets.map { collections[$0] }.forEach(context.delete)
                 }
-                Button("New Collection…", systemImage: "plus") { isNaming = true }
+                NewCollectionField()
             }
         }
         .navigationTitle("Collections")
-        .toolbar { EditButton() }
-        .alert("New Collection", isPresented: $isNaming) {
-            TextField("Name", text: $newName)
-            Button("Cancel", role: .cancel) { newName = "" }
-            Button("Create") {
-                let name = newName.trimmingCharacters(in: .whitespaces)
-                if !name.isEmpty { context.insert(BookCollection(name: name)) }
-                newName = ""
-            }
+        .toolbar {
+            // Only custom collections can be deleted.
+            if !collections.isEmpty { EditButton() }
         }
     }
 
@@ -369,7 +334,7 @@ struct CollectionDetailView: View {
 
     private var title: String {
         switch route {
-        case .all: String(localized: "Books")
+        case .all: String(localized: "All Books")
         case .wantToRead: String(localized: "Want to Read")
         case .finished: String(localized: "Finished")
         case .custom: ""
@@ -377,24 +342,55 @@ struct CollectionDetailView: View {
     }
 }
 
-/// Adds books to user collections.
+/// The inline field that names a new collection, the same in Collections and the collection picker.
+struct NewCollectionField: View {
+    /// Called with the collection just created, so the picker can add its books.
+    var onCreate: (BookCollection) -> Void = { _ in }
+
+    @Environment(\.modelContext) private var context
+    @State private var name = ""
+
+    var body: some View {
+        HStack {
+            Label {
+                TextField("New Collection", text: $name)
+                    .submitLabel(.done)
+                    .onSubmit(create)
+                    .accessibilityIdentifier("collections.newName")
+            } icon: {
+                Image(systemName: "rectangle.stack.badge.plus").foregroundStyle(.tint)
+            }
+            Button("Create", action: create)
+                .buttonStyle(.borderless)
+                .disabled(trimmedName.isEmpty)
+                .accessibilityIdentifier("collections.create")
+        }
+    }
+
+    private var trimmedName: String { name.trimmingCharacters(in: .whitespaces) }
+
+    private func create() {
+        guard !trimmedName.isEmpty else { return }
+        let collection = BookCollection(name: trimmedName)
+        context.insert(collection)
+        onCreate(collection)
+        name = ""
+    }
+}
+
+/// Adds books to user collections. Changes apply as they're made, so the sheet only closes.
 struct CollectionPicker: View {
     let books: [Book]
 
-    @Environment(\.modelContext) private var context
     @Environment(\.dismiss) private var dismiss
     @Query(sort: \BookCollection.created) private var collections: [BookCollection]
-    @State private var newName = ""
 
     var body: some View {
         NavigationStack {
             List {
                 Section {
-                    HStack {
-                        TextField("New Collection", text: $newName)
-                            .onSubmit(create)
-                        Button("Create", action: create)
-                            .disabled(newName.trimmingCharacters(in: .whitespaces).isEmpty)
+                    NewCollectionField { collection in
+                        collection.books.append(contentsOf: books)
                     }
                 }
                 Section {
@@ -403,7 +399,7 @@ struct CollectionPicker: View {
                             toggle(collection)
                         } label: {
                             HStack {
-                                Text(collection.name)
+                                Label(collection.name, systemImage: "rectangle.stack")
                                 Spacer()
                                 if contains(collection) {
                                     Image(systemName: "checkmark").foregroundStyle(.tint)
@@ -412,14 +408,16 @@ struct CollectionPicker: View {
                             .contentShape(.rect)
                         }
                         .buttonStyle(.plain)
+                        .accessibilityAddTraits(contains(collection) ? .isSelected : [])
                     }
                 }
             }
             .navigationTitle("Add to Collection")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("Done", systemImage: "checkmark") { dismiss() }
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button(role: .close) { dismiss() }
+                        .accessibilityIdentifier("collectionPicker.close")
                 }
             }
         }
@@ -438,14 +436,5 @@ struct CollectionPicker: View {
                 collection.books.append(book)
             }
         }
-    }
-
-    private func create() {
-        let name = newName.trimmingCharacters(in: .whitespaces)
-        guard !name.isEmpty else { return }
-        let collection = BookCollection(name: name)
-        context.insert(collection)
-        collection.books.append(contentsOf: books)
-        newName = ""
     }
 }

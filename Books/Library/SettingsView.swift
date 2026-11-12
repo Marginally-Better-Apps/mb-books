@@ -10,6 +10,7 @@ struct SettingsView: View {
     @AppStorage(GoalDefaults.dailyMinutesKey) private var dailyGoal = GoalDefaults.dailyMinutes
     @AppStorage(GoalDefaults.yearlyBooksKey) private var yearlyGoal = GoalDefaults.yearlyBooks
     @Query private var books: [Book]
+    @State private var isConfirmingVoiceDeletion = false
     private var voiceStore: NeuralVoiceStore { .shared }
 
     var body: some View {
@@ -43,17 +44,17 @@ struct SettingsView: View {
                 Section {
                     VoiceModelRow()
                     if voiceStore.isReady {
-                        Button("Delete Natural Voices", role: .destructive) { voiceStore.delete() }
+                        Button("Delete Natural Voices", role: .destructive) { isConfirmingVoiceDeletion = true }
+                            .accessibilityIdentifier("settings.deleteVoices")
                     }
-                    NavigationLink("Acknowledgements") { AcknowledgementsView() }
                 } header: {
                     Text("Listening")
                 } footer: {
-                    Text("Listening works offline. Natural voices need a one-time download and read English books; Apple voices read every language.")
+                    Text("Apple voices work right away and read every language. Natural voices read English books and need a one-time \(Self.voiceDownloadSize) download, then work offline.")
                 }
 
                 Section("Library") {
-                    LabeledContent("Books", value: "\(books.count)")
+                    LabeledContent("All Books", value: "\(books.count)")
                     LabeledContent("Storage", value: ByteCountFormatStyle().format(books.reduce(0) { $0 + $1.fileSize }))
                 }
 
@@ -62,12 +63,14 @@ struct SettingsView: View {
                         HStack {
                             Label("MB Books on GitHub", systemImage: "chevron.left.forwardslash.chevron.right")
                             Spacer()
-                            Image(systemName: "arrow.up.right").font(.footnote).foregroundStyle(.tertiary)
+                            // Explicitly gray: inside a link, plain tertiary is the tint, too faint to read.
+                            Image(systemName: "arrow.up.right").font(.footnote).foregroundStyle(Color(.tertiaryLabel))
+                                .accessibilityHidden(true)
                         }
                     }
                     .accessibilityIdentifier("settings.github")
                     LabeledContent("Version", value: Self.version)
-                    LabeledContent("Format", value: "EPUB 3.4")
+                    NavigationLink("Acknowledgements") { AcknowledgementsView() }
                 } header: {
                     Text("About")
                 } footer: {
@@ -77,13 +80,22 @@ struct SettingsView: View {
             .navigationTitle("Settings")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("Done", systemImage: "checkmark") { dismiss() }
+                // Settings apply as they change, so the sheet only closes.
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button(role: .close) { dismiss() }
                         .accessibilityIdentifier("settings.done")
                 }
             }
+            .confirmationDialog("Delete Natural Voices?", isPresented: $isConfirmingVoiceDeletion, titleVisibility: .visible) {
+                Button("Delete Natural Voices", role: .destructive) { voiceStore.delete() }
+            } message: {
+                Text("This frees \(Self.voiceDownloadSize). You can download them again later.")
+            }
         }
     }
+
+    /// The natural voices' download size, which is also the space they take up once installed.
+    static var voiceDownloadSize: String { ByteCountFormatStyle().format(NeuralVoiceCatalog.downloadSize) }
 
     static var version: String {
         let info = Bundle.main.infoDictionary

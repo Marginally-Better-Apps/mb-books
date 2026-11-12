@@ -6,6 +6,7 @@ struct ContentsView: View {
     @Bindable var model: ReaderModel
 
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var tab = Tab.contents
     @State private var scrubValue: Double?
 
@@ -30,9 +31,20 @@ struct ContentsView: View {
                 case .highlights: annotationList(model.book.highlights, empty: highlightsEmpty)
                 }
             }
+            // The reader keeps what was deleted, so Undo carries on there once this sheet closes.
+            .safeAreaInset(edge: .bottom) {
+                if let deleted = model.recentlyDeleted {
+                    UndoDeleteBanner(deleted: deleted, undoIdentifier: "contents.undoDelete") { model.undoDelete() }
+                        .padding(.horizontal)
+                        .padding(.bottom, 8)
+                        .transition(UndoDeleteBanner.transition(reduceMotion: reduceMotion))
+                }
+            }
+            .animation(.smooth(duration: 0.25), value: model.recentlyDeleted)
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
-                    Button("Done", systemImage: "xmark") { dismiss() }
+                    Button(role: .close) { dismiss() }
+                        .accessibilityIdentifier("contents.close")
                 }
             }
             .navigationBarTitleDisplayMode(.inline)
@@ -66,7 +78,7 @@ struct ContentsView: View {
                     Text(model.publication.chapterTitle(forSpineIndex: scrubTarget) ?? "")
                         .lineLimit(1)
                     Spacer()
-                    Text("\(Int(((scrubValue ?? model.location.totalProgression) * 100).rounded()))%")
+                    Text("\(Book.wholePercent(scrubValue ?? model.location.totalProgression, opened: true))%")
                         .monospacedDigit()
                 }
                 .font(.caption)
@@ -96,6 +108,7 @@ struct ContentsView: View {
                                 .fontWeight(index == model.location.spineIndex ? .semibold : .regular)
                         }
                     }
+                    .listRowBackground(Color.clear)
                 }
                 ForEach(entries, id: \.point.id) { entry in
                     Button {
@@ -116,8 +129,10 @@ struct ContentsView: View {
                     .disabled(entry.point.path == nil)
                     .id(entry.point.id)
                 }
+                .listRowBackground(Color.clear)
             }
             .listStyle(.plain)
+            .scrollContentBackground(.hidden)
             .onAppear { if let current { proxy.scrollTo(current, anchor: .center) } }
         }
     }
@@ -134,7 +149,7 @@ struct ContentsView: View {
     private func annotationList(_ annotations: [Annotation], empty: some View) -> some View {
         List {
             if annotations.isEmpty {
-                empty.listRowSeparator(.hidden)
+                empty.listRowSeparator(.hidden).listRowBackground(Color.clear)
             }
             ForEach(annotations) { annotation in
                 Button {
@@ -144,6 +159,7 @@ struct ContentsView: View {
                     AnnotationRow(annotation: annotation)
                 }
                 .buttonStyle(.plain)
+                .listRowBackground(Color.clear)
                 .swipeActions {
                     Button("Delete", systemImage: "trash", role: .destructive) { model.delete(annotation) }
                 }
@@ -160,6 +176,7 @@ struct ContentsView: View {
             }
         }
         .listStyle(.plain)
+        .scrollContentBackground(.hidden)
     }
 
     private var bookmarksEmpty: some View {
@@ -222,54 +239,104 @@ struct HighlightMenu: View {
     let model: ReaderModel
     let annotation: Annotation
 
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+    @ScaledMetric(relativeTo: .title3) private var swatchSize: CGFloat = 28
+
+    private static let colors = HighlightColor.allCases
+
+    /// Every swatch gets at least a 44 pt target; at accessibility sizes they wrap onto two rows.
+    private var target: CGFloat { max(44, swatchSize + 16) }
+    private var columns: Int { dynamicTypeSize.isAccessibilitySize ? 3 : Self.colors.count }
+    /// The actions span the same width as the swatches: four in a row, or two by two at accessibility sizes.
+    private var actionWidth: CGFloat { target * CGFloat(columns) / (dynamicTypeSize.isAccessibilitySize ? 2 : 4) }
+
     var body: some View {
-        VStack(spacing: 12) {
-            HStack(spacing: 10) {
-                ForEach(HighlightColor.allCases) { color in
-                    Button {
-                        model.setColor(color, for: annotation)
-                    } label: {
-                        ZStack {
-                            if color == .underline {
-                                Circle().strokeBorder(.secondary, lineWidth: 1)
-                                Text("U").font(.callout.weight(.bold)).underline(color: .red)
-                            } else {
-                                Circle().fill(color.color)
-                            }
-                            if annotation.color == color {
-                                Circle().strokeBorder(.primary, lineWidth: 2.5).padding(-4)
-                            }
+        VStack(spacing: 6) {
+            Grid(horizontalSpacing: 0, verticalSpacing: 0) {
+                ForEach(Array(stride(from: 0, to: Self.colors.count, by: columns)), id: \.self) { start in
+                    GridRow {
+                        ForEach(Self.colors[start..<min(start + columns, Self.colors.count)]) { color in
+                            swatch(color)
                         }
-                        .frame(width: 28, height: 28)
                     }
-                    .accessibilityLabel(Text(color.name))
                 }
             }
-            HStack(spacing: 0) {
-                action("Note", "note.text") {
-                    model.popover = nil
-                    model.editingNote = annotation
+            .sensoryFeedback(.selection, trigger: annotation.color)
+            Grid(horizontalSpacing: 0, verticalSpacing: 0) {
+                if dynamicTypeSize.isAccessibilitySize {
+                    GridRow { noteAction; copyAction }
+                    GridRow { shareAction; deleteAction }
+                } else {
+                    GridRow { noteAction; copyAction; shareAction; deleteAction }
                 }
-                action("Copy", "doc.on.doc") {
-                    UIPasteboard.general.string = annotation.text
-                    model.popover = nil
-                }
-                ShareLink(item: "“\(annotation.text)”\n— \(model.book.title), \(model.book.author)") {
-                    Label("Share", systemImage: "square.and.arrow.up").labelStyle(.iconOnly)
-                        .frame(maxWidth: .infinity, minHeight: 32)
-                }
-                action("Delete", "trash", role: .destructive) { model.delete(annotation) }
             }
             .font(.title3)
         }
-        .padding(14)
-        .frame(width: 280)
+        .padding(10)
+        .fixedSize()
+    }
+
+    private func swatch(_ color: HighlightColor) -> some View {
+        Button {
+            model.setColor(color, for: annotation)
+        } label: {
+            ZStack {
+                if color == .underline {
+                    Circle().strokeBorder(.secondary, lineWidth: 1)
+                    Text("U").font(.callout.weight(.bold)).underline(color: .red)
+                        .dynamicTypeSize(...DynamicTypeSize.accessibility1)
+                } else {
+                    Circle().fill(color.color)
+                }
+                if annotation.color == color {
+                    Circle().strokeBorder(.primary, lineWidth: 2.5).padding(-4)
+                }
+            }
+            .frame(width: swatchSize, height: swatchSize)
+            .frame(width: target, height: target)
+            .contentShape(.rect)
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(Text(color.name))
+        .accessibilityAddTraits(annotation.color == color ? .isSelected : [])
+    }
+
+    private var noteAction: some View {
+        action("Note", "note.text") {
+            model.popover = nil
+            model.editingNote = annotation
+        }
+    }
+
+    private var copyAction: some View {
+        action("Copy", "doc.on.doc") {
+            UIPasteboard.general.string = annotation.text
+            model.popover = nil
+        }
+    }
+
+    private var shareAction: some View {
+        ShareLink(item: "“\(annotation.text)”\n— \(model.book.title), \(model.book.author)") {
+            Label("Share", systemImage: "square.and.arrow.up").labelStyle(.iconOnly)
+                .frame(width: actionWidth, height: 44)
+                .contentShape(.rect)
+        }
+        .buttonStyle(.plain)
+        .foregroundStyle(.primary)
+    }
+
+    /// Deletes straight away and closes the palette; the reader offers Undo for a few seconds.
+    private var deleteAction: some View {
+        action("Delete", "trash", role: .destructive) { model.delete(annotation) }
+            .accessibilityIdentifier("highlight.delete")
     }
 
     private func action(_ title: LocalizedStringKey, _ image: String, role: ButtonRole? = nil,
                         perform: @escaping () -> Void) -> some View {
         Button(role: role, action: perform) {
-            Label(title, systemImage: image).labelStyle(.iconOnly).frame(maxWidth: .infinity, minHeight: 32)
+            Label(title, systemImage: image).labelStyle(.iconOnly)
+                .frame(width: actionWidth, height: 44)
+                .contentShape(.rect)
         }
         .buttonStyle(.plain)
         .foregroundStyle(role == .destructive ? AnyShapeStyle(.red) : AnyShapeStyle(.primary))
@@ -280,7 +347,22 @@ struct NoteEditor: View {
     @Bindable var annotation: Annotation
     @Environment(\.dismiss) private var dismiss
     @FocusState private var focused: Bool
-    @State private var text = ""
+    @State private var text: String
+    @State private var isConfirmingDiscard = false
+
+    init(annotation: Annotation) {
+        self.annotation = annotation
+        _text = State(initialValue: annotation.note ?? "")
+    }
+
+    /// The note as it would be saved: trimmed, and nil when empty.
+    private var editedNote: String? {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
+    }
+
+    /// Unsaved edits keep the sheet from being swiped away, so a note is never lost by accident.
+    private var hasChanges: Bool { editedNote != annotation.note }
 
     var body: some View {
         NavigationStack {
@@ -298,19 +380,95 @@ struct NoteEditor: View {
             .navigationTitle("Note")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button(role: .cancel) {
+                        if hasChanges { isConfirmingDiscard = true } else { dismiss() }
+                    }
+                    .accessibilityIdentifier("note.cancel")
+                    .confirmationDialog("Discard Note?", isPresented: $isConfirmingDiscard, titleVisibility: .visible) {
+                        Button("Discard Changes", role: .destructive) { dismiss() }
+                        Button("Keep Editing", role: .cancel) {}
+                    }
+                }
                 ToolbarItem(placement: .confirmationAction) {
-                    Button("Done", systemImage: "checkmark") {
-                        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-                        annotation.note = trimmed.isEmpty ? nil : trimmed
+                    Button(role: .confirm) {
+                        annotation.note = editedNote
                         dismiss()
                     }
+                    .accessibilityIdentifier("note.save")
                 }
             }
         }
-        .onAppear {
-            text = annotation.note ?? ""
-            focused = true
-        }
+        .onAppear { focused = true }
+        .interactiveDismissDisabled(hasChanges)
+        // A blocked swipe asks, as Notes and Mail do, instead of only rubber-banding.
+        .background(DismissalAttempts { if hasChanges { isConfirmingDiscard = true } })
         .presentationDetents([.medium, .large])
+    }
+
+    /// Reports a swipe that tried to dismiss the sheet it's placed in while dismissal is disabled.
+    private struct DismissalAttempts: UIViewControllerRepresentable {
+        let onAttempt: () -> Void
+
+        func makeUIViewController(context: Context) -> Controller { Controller(onAttempt: onAttempt) }
+
+        func updateUIViewController(_ controller: Controller, context: Context) {
+            controller.relay.onAttempt = onAttempt
+            controller.install()
+        }
+
+        final class Controller: UIViewController {
+            let relay: Relay
+
+            init(onAttempt: @escaping () -> Void) {
+                relay = Relay(onAttempt: onAttempt)
+                super.init(nibName: nil, bundle: nil)
+            }
+
+            @available(*, unavailable)
+            required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
+
+            override func didMove(toParent parent: UIViewController?) {
+                super.didMove(toParent: parent)
+                install()
+            }
+
+            override func viewWillAppear(_ animated: Bool) {
+                super.viewWillAppear(animated)
+                install()
+            }
+
+            /// Steps in as the delegate of the presented controller, the root of this controller's parent chain.
+            func install() {
+                var root: UIViewController = self
+                while let parent = root.parent { root = parent }
+                guard root.presentingViewController != nil, let presentation = root.presentationController,
+                      presentation.delegate !== relay else { return }
+                relay.original = presentation.delegate
+                presentation.delegate = relay
+            }
+        }
+
+        /// Hears the dismissal attempt and passes every delegate call on to SwiftUI's own delegate, which
+        /// keeps the sheet's binding and `interactiveDismissDisabled` working.
+        final class Relay: NSObject, UIAdaptivePresentationControllerDelegate {
+            var onAttempt: () -> Void
+            nonisolated(unsafe) weak var original: (any UIAdaptivePresentationControllerDelegate)?
+
+            init(onAttempt: @escaping () -> Void) { self.onAttempt = onAttempt }
+
+            func presentationControllerDidAttemptToDismiss(_ presentationController: UIPresentationController) {
+                original?.presentationControllerDidAttemptToDismiss?(presentationController)
+                onAttempt()
+            }
+
+            nonisolated override func responds(to selector: Selector!) -> Bool {
+                super.responds(to: selector) || original?.responds(to: selector) == true
+            }
+
+            nonisolated override func forwardingTarget(for selector: Selector!) -> Any? {
+                original?.responds(to: selector) == true ? original : super.forwardingTarget(for: selector)
+            }
+        }
     }
 }

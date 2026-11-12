@@ -32,17 +32,17 @@ enum ReaderThemeID: String, Codable, CaseIterable, Identifiable {
 
     func palette(dark: Bool) -> ThemePalette {
         switch (self, dark) {
-        case (.original, false): ThemePalette(background: 0xFFFFFF, text: 0x111111, secondary: 0x8A8A8E, link: 0x0A60D9)
+        case (.original, false): ThemePalette(background: 0xFFFFFF, text: 0x111111, secondary: 0x6C6C70, link: 0x0A60D9)
         case (.original, true): ThemePalette(background: 0x121212, text: 0xEDEDED, secondary: 0x8E8E93, link: 0x4C9DFF)
-        case (.quiet, false): ThemePalette(background: 0x4A4A4D, text: 0xD6D6D6, secondary: 0xA0A0A5, link: 0x9CC3FF)
-        case (.quiet, true): ThemePalette(background: 0x2B2B2D, text: 0xA8A8AC, secondary: 0x75757A, link: 0x7FAEEA)
-        case (.paper, false): ThemePalette(background: 0xF2EFE8, text: 0x1E1D1B, secondary: 0x8B877F, link: 0x2F5FAE)
+        case (.quiet, false): ThemePalette(background: 0x4A4A4D, text: 0xD6D6D6, secondary: 0xBBBBBE, link: 0x9CC3FF)
+        case (.quiet, true): ThemePalette(background: 0x2B2B2D, text: 0xA8A8AC, secondary: 0x939397, link: 0x7FAEEA)
+        case (.paper, false): ThemePalette(background: 0xF2EFE8, text: 0x1E1D1B, secondary: 0x6F6B64, link: 0x2F5FAE)
         case (.paper, true): ThemePalette(background: 0x232220, text: 0xDEDBD3, secondary: 0x8D8A83, link: 0x89AEE8)
         case (.bold, false): ThemePalette(background: 0xFFFFFF, text: 0x000000, secondary: 0x6E6E73, link: 0x0040DD)
         case (.bold, true): ThemePalette(background: 0x000000, text: 0xFFFFFF, secondary: 0x98989D, link: 0x5EA1FF)
-        case (.calm, false): ThemePalette(background: 0xF4E8CE, text: 0x3D2E1F, secondary: 0x9A8466, link: 0x8A4B12)
-        case (.calm, true): ThemePalette(background: 0x332A21, text: 0xE5D6BB, secondary: 0x9D8B70, link: 0xE0A867)
-        case (.focus, false): ThemePalette(background: 0xFFFBEF, text: 0x262420, secondary: 0x9C968A, link: 0x7A5200)
+        case (.calm, false): ThemePalette(background: 0xF4E8CE, text: 0x3D2E1F, secondary: 0x76654E, link: 0x8A4B12)
+        case (.calm, true): ThemePalette(background: 0x332A21, text: 0xE5D6BB, secondary: 0xA39278, link: 0xE0A867)
+        case (.focus, false): ThemePalette(background: 0xFFFBEF, text: 0x262420, secondary: 0x797266, link: 0x7A5200)
         case (.focus, true): ThemePalette(background: 0x1B1A17, text: 0xE9E3D2, secondary: 0x8F897C, link: 0xE4BE6A)
         }
     }
@@ -157,7 +157,7 @@ enum PageTurnStyle: String, Codable, CaseIterable, Identifiable {
     var systemImage: String {
         switch self {
         case .curl: "book.pages"
-        case .slide: "rectangle.portrait.on.rectangle.portrait.angled"
+        case .slide: "arrow.left.and.right"
         case .fade: "circle.dashed"
         case .scroll: "arrow.up.and.down.text.horizontal"
         }

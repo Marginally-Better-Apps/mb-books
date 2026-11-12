@@ -32,6 +32,7 @@ struct ThemesView: View {
                             }
                         }
                     }
+                    .sensoryFeedback(.selection, trigger: model.preferences.theme)
                     NavigationLink {
                         CustomizeThemeView(model: model)
                     } label: {
@@ -49,7 +50,8 @@ struct ThemesView: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
-                    Button("Done", systemImage: "xmark") { dismiss() }
+                    Button(role: .close) { dismiss() }
+                        .accessibilityIdentifier("themes.close")
                 }
             }
         }
@@ -65,12 +67,14 @@ struct ThemesView: View {
                 }
                 .disabled(model.preferences.fontScaleIndex == 0)
                 .accessibilityLabel("Decrease Font Size")
+                .accessibilityValue(fontSizeValue)
                 Divider().frame(height: 24)
                 Button { model.increaseFontSize() } label: {
                     Text("A").font(.system(size: 22, weight: .medium)).frame(maxWidth: .infinity, minHeight: 44)
                 }
                 .disabled(model.preferences.fontScaleIndex == ReaderPreferences.fontScales.count - 1)
                 .accessibilityLabel("Increase Font Size")
+                .accessibilityValue(fontSizeValue)
                 .accessibilityIdentifier("themes.increaseFont")
             }
             .buttonStyle(.plain)
@@ -91,6 +95,7 @@ struct ThemesView: View {
             .glassEffect(.regular.interactive(), in: .capsule)
             .disabled(model.publication.layout == .roll)
             .accessibilityLabel("Page Turn")
+            .accessibilityValue(Text(model.effectivePageTurn.name))
             .accessibilityIdentifier("themes.pageTurn")
 
             Menu {
@@ -100,14 +105,20 @@ struct ThemesView: View {
                     }
                 }
             } label: {
-                Image(systemName: "circle.lefthalf.filled")
+                Image(systemName: appearance.systemImage)
                     .font(.system(size: 17, weight: .medium))
                     .frame(width: 52, height: 44)
             }
             .glassEffect(.regular.interactive(), in: .capsule)
             .accessibilityLabel("Appearance")
+            .accessibilityValue(Text(appearance.title))
         }
         .foregroundStyle(.primary)
+    }
+
+    /// The text size as a percentage of the book's own, for VoiceOver.
+    private var fontSizeValue: String {
+        model.preferences.fontScale.formatted(.percent.precision(.fractionLength(0)))
     }
 }
 
@@ -144,6 +155,9 @@ private struct ThemeTile: View {
 struct CustomizeThemeView: View {
     @Bindable var model: ReaderModel
 
+    /// The theme's own style, which each slider resets to.
+    private var defaults: ThemeStyle { model.preferences.theme.defaultStyle }
+
     var body: some View {
         Form {
             Section("Text") {
@@ -160,18 +174,23 @@ struct CustomizeThemeView: View {
                 SpacingSlider(
                     title: "Line Spacing",
                     value: Binding(
-                        get: { model.preferences.style.lineSpacing ?? 1.4 },
+                        get: { model.preferences.style.lineSpacing ?? defaults.lineSpacing ?? 1.4 },
                         set: { model.preferences.style.lineSpacing = $0 }),
-                    range: ThemeStyle.lineSpacingRange, isDefault: model.preferences.style.lineSpacing == nil)
+                    range: ThemeStyle.lineSpacingRange, isDefault: model.preferences.style.lineSpacing == defaults.lineSpacing,
+                    format: SpacingSlider.multiple) { model.preferences.style.lineSpacing = defaults.lineSpacing }
                 SpacingSlider(
                     title: "Character Spacing", value: $model.preferences.style.characterSpacing,
-                    range: ThemeStyle.characterSpacingRange, isDefault: model.preferences.style.characterSpacing == 0)
+                    range: ThemeStyle.characterSpacingRange,
+                    isDefault: model.preferences.style.characterSpacing == defaults.characterSpacing,
+                    format: SpacingSlider.extra) { model.preferences.style.characterSpacing = defaults.characterSpacing }
                 SpacingSlider(
                     title: "Word Spacing", value: $model.preferences.style.wordSpacing,
-                    range: ThemeStyle.wordSpacingRange, isDefault: model.preferences.style.wordSpacing == 0)
+                    range: ThemeStyle.wordSpacingRange, isDefault: model.preferences.style.wordSpacing == defaults.wordSpacing,
+                    format: SpacingSlider.extra) { model.preferences.style.wordSpacing = defaults.wordSpacing }
                 SpacingSlider(
                     title: "Margins", value: $model.preferences.style.margins,
-                    range: ThemeStyle.marginsRange, isDefault: model.preferences.style.margins == 1)
+                    range: ThemeStyle.marginsRange, isDefault: model.preferences.style.margins == defaults.margins,
+                    format: SpacingSlider.multiple) { model.preferences.style.margins = defaults.margins }
                 Toggle("Justify Text", isOn: $model.preferences.style.justify)
                 Toggle("Allow Multiple Columns", isOn: $model.preferences.style.allowMultipleColumns)
             }
@@ -186,23 +205,49 @@ struct CustomizeThemeView: View {
     }
 }
 
+/// A spacing slider showing its value, with a button that puts it back to the theme's default.
 private struct SpacingSlider: View {
     let title: LocalizedStringKey
     @Binding var value: Double
     let range: ClosedRange<Double>
     let isDefault: Bool
+    let format: (Double) -> String
+    let reset: () -> Void
+
+    /// "1.6×": line spacing and margins are multiples of the usual.
+    static func multiple(_ value: Double) -> String {
+        value.formatted(.number.precision(.fractionLength(1))) + "×"
+    }
+
+    /// "+5%": letter and word spacing are added as a share of the text size.
+    static func extra(_ value: Double) -> String {
+        value.formatted(.percent.precision(.fractionLength(0)).sign(strategy: .always(includingZero: false)))
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack {
                 Text(title)
                 Spacer()
-                if isDefault {
-                    Text("Default").font(.footnote).foregroundStyle(.secondary)
+                Text(isDefault ? String(localized: "Default") : format(value))
+                    .font(.footnote.monospacedDigit())
+                    .foregroundStyle(.secondary)
+                    .accessibilityHidden(true)
+                if !isDefault {
+                    Button("Reset to Default", systemImage: "arrow.counterclockwise", action: reset)
+                        .labelStyle(.iconOnly)
+                        .font(.footnote.weight(.semibold))
+                        .frame(width: 44, height: 44)
+                        .contentShape(.rect)
+                        .buttonStyle(.borderless)
+                        .padding(.vertical, -12)
+                        .accessibilityLabel(Text("Reset \(Text(title))"))
                 }
             }
             Slider(value: $value, in: range)
                 .accessibilityLabel(Text(title))
+                .accessibilityValue(isDefault ? Text("\(format(value)), Default") : Text(format(value)))
+                .accessibilityAction(named: "Reset to Default", reset)
         }
     }
 }

@@ -27,24 +27,18 @@ struct SearchView: View {
                     Section("Books") {
                         ForEach(results) { book in
                             let source = "search-\(book.id)"
-                            Button {
-                                openBook(book, source)
-                            } label: {
-                                HStack(spacing: 14) {
-                                    BookCover(book: book)
-                                        .frame(width: 44, height: 66)
-                                        .zoomSource(source)
-                                    VStack(alignment: .leading, spacing: 3) {
-                                        Text(book.title).font(.headline).lineLimit(2)
-                                        Text(book.author).font(.subheadline).foregroundStyle(.secondary).lineLimit(1)
-                                    }
-                                    Spacer()
-                                    BookProgressBadge(book: book)
+                            HStack(spacing: 16) {
+                                Button {
+                                    openBook(book, source)
+                                } label: {
+                                    BookRow(book: book, source: source)
                                 }
-                                .contentShape(.rect)
+                                .buttonStyle(.plain)
+                                .bookInteractions(book)
+                                .bookAccessibility(book)
+                                .accessibilityIdentifier("search.\(book.title)")
+                                BookMenuButton(book: book)
                             }
-                            .buttonStyle(.plain)
-                            .bookInteractions(book)
                         }
                     }
                 }

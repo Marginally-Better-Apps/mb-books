@@ -20,6 +20,10 @@
     textNodes: null,
     relocateTimer: null,
     layoutTimer: null,
+    layoutPending: false,
+    contentPages: null,
+    searchRange: null,
+    searchTimer: null,
   };
 
   // ---------------------------------------------------------------------------
@@ -41,20 +45,31 @@
   const isPaginated = () => !isFixed() && state.config.mode !== 'scroll';
 
   function highlightCSS(dark) {
-    const alpha = dark ? 0.38 : 0.42;
     const colors = {
       yellow: [255, 214, 51], green: [116, 217, 102], blue: [102, 178, 255], pink: [255, 128, 166], purple: [184, 140, 255],
     };
-    let css = Object.entries(colors)
-      .map(([name, [r, g, b]]) => `::highlight(mb-${name}){background-color:rgba(${r},${g},${b},${alpha});}`)
-      .join('');
-    css += '::highlight(mb-underline){text-decoration:underline;text-decoration-color:#ff3b30;text-decoration-thickness:2px;}';
-    css += '::highlight(mb-search){background-color:rgba(255,159,10,.55);}';
-    // Read aloud: boxes over the sentence being spoken and the word within it (see `drawSpeech`).
+    // On dark pages, highlighted text turns white over a lighter fill, so it stays readable (4.5:1 or better).
+    const style = dark
+      ? ([r, g, b]) => `color:#fff;background-color:rgba(${r},${g},${b},0.3);`
+      : ([r, g, b]) => `background-color:rgba(${r},${g},${b},0.42);`;
+    let css = Object.entries(colors).map(([name, rgb]) => `::highlight(mb-${name}){${style(rgb)}}`).join('');
+    css += `::highlight(mb-underline){text-decoration:underline;text-decoration-color:${dark ? '#ff6961' : '#ff3b30'};` +
+      'text-decoration-thickness:2px;}';
+    // Read aloud: boxes over the sentence being spoken and the word within it (see `drawSpeech`), and a search hit,
+    // briefly. On light pages they tint over the text, the search fill multiplying so the ink stays dark. On dark
+    // pages they sit behind the text in deep tints, since any tint over light text washes it out.
     css += '#mb-speech-layer{position:absolute;left:0;top:0;width:0;height:0;pointer-events:none;z-index:2147483646;}';
     css += '#mb-speech-layer>div{position:absolute;border-radius:3px;}';
-    css += `#mb-speech-layer>.sentence{background-color:rgba(10,132,255,${dark ? 0.2 : 0.12});}`;
-    css += `#mb-speech-layer>.word{background-color:rgba(10,132,255,${dark ? 0.38 : 0.26});}`;
+    if (dark) {
+      css += '#mb-speech-layer{z-index:-1;}';
+      css += '#mb-speech-layer>.sentence{background-color:rgba(20,60,130,.5);}';
+      css += '#mb-speech-layer>.word{background-color:rgba(10,50,140,.85);}';
+      css += '#mb-speech-layer>.search{background-color:rgba(100,62,8,.6);box-shadow:inset 0 -2px 0 rgba(255,179,64,.9);}';
+    } else {
+      css += '#mb-speech-layer>.sentence{background-color:rgba(10,132,255,.12);}';
+      css += '#mb-speech-layer>.word{background-color:rgba(10,132,255,.26);}';
+      css += '#mb-speech-layer>.search{background-color:rgba(255,159,10,.4);mix-blend-mode:multiply;}';
+    }
     return css;
   }
 
@@ -99,7 +114,9 @@
     rules.push('img,video{object-fit:contain;height:auto;}');
 
     if (colors.override) {
-      rules.push('html,body{color:var(--mb-text) !important;}');
+      // The page color is on <html>; a clear body also lets dark pages' read-aloud boxes show behind the text.
+      rules.push('html,body{color:var(--mb-text) !important;}' +
+        'body{background-color:transparent !important;background-image:none !important;}');
       rules.push('body :not(img):not(svg):not(svg *):not(video):not(math):not(math *):not(canvas){' +
         'color:inherit !important;background-color:transparent !important;border-color:currentColor;}');
       rules.push('body a:link,body a:visited,body a:link *,body a:visited *{color:var(--mb-link) !important;}');
@@ -191,8 +208,41 @@
 
   function pageCount() {
     if (!isPaginated()) return 1;
-    const count = Math.round(scroller().scrollWidth / pageWidth());
-    return Number.isFinite(count) ? Math.max(1, count) : 1;
+    let count = Math.round(scroller().scrollWidth / pageWidth());
+    if (!Number.isFinite(count)) return 1;
+    // A trailing page break, empty paragraph, or bottom margin can spill into columns with nothing on them.
+    if (state.contentPages) count = Math.min(count, state.contentPages);
+    return Math.max(1, count);
+  }
+
+  const visibleMedia = new Set(['img', 'svg', 'video', 'canvas', 'iframe', 'object', 'embed', 'math', 'hr', 'image']);
+
+  /// The number of pages up to and including the last one with something on it: text, or an image or other media.
+  /// Searches backward from the end of the document, since columns follow document order.
+  function countContentPages() {
+    if (!isPaginated() || !document.body) return null;
+    const width = pageWidth();
+    const pageOf = (rect) => (isRTL()
+      ? Math.floor((width - (rect.right + window.scrollX) + 1) / width)
+      : Math.floor((rect.left + window.scrollX + 1) / width));
+    const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT | NodeFilter.SHOW_ELEMENT);
+    let node = document.body;
+    while (node.lastChild) node = node.lastChild;
+    walker.currentNode = node;
+    for (let n = node, steps = 0; n && steps < 5000; n = walker.previousNode(), steps += 1) {
+      let rects = [];
+      if (n.nodeType === Node.TEXT_NODE) {
+        if (!/\S/.test(n.data)) continue;
+        const range = document.createRange();
+        range.selectNodeContents(n);
+        rects = Array.from(range.getClientRects());
+      } else if (visibleMedia.has(n.localName)) {
+        rects = [n.getBoundingClientRect()];
+      }
+      const last = rects.filter((rect) => rect.width > 0 && rect.height > 0).pop();
+      if (last) return Math.max(0, pageOf(last)) + 1;
+    }
+    return null;
   }
 
   /// Keeps the scroll width a whole number of pages when multiple columns leave a half page.
@@ -220,12 +270,15 @@
   }
 
   function relayout(reason) {
+    state.layoutPending = false;
     if (window.innerWidth === 0 || window.innerHeight === 0) return layoutInfo();
     state.textNodes = null;
     applyStyles();
     padColumns();
+    state.contentPages = null;
+    state.contentPages = countContentPages();
     // Text moved: put the read-aloud boxes back over it.
-    if (state.speech) drawSpeech();
+    if (state.speech || state.searchRange) drawSpeech();
     const info = layoutInfo();
     if (state.ready) {
       info.reason = reason;
@@ -237,6 +290,7 @@
 
   function scheduleRelayout(reason) {
     clearTimeout(state.layoutTimer);
+    state.layoutPending = true;
     state.layoutTimer = setTimeout(() => relayout(reason), 60);
   }
 
@@ -470,10 +524,27 @@
     return text.replace(/\s+/g, ' ').trim().slice(0, 160);
   }
 
+  /// Puts a page left part-way scrolled back on a page boundary, the nearest one. Page turns always land on one, but
+  /// VoiceOver focus or scrolling an element into view can leave half of two pages showing. Not while text is
+  /// selected (WebKit scrolls to extend it) or a relayout is pending (the reader puts its anchor back after that).
+  /// Returns whether it scrolled; the scroll reports the new page.
+  function snapToPage() {
+    if (!isPaginated() || state.layoutPending) return false;
+    const selected = window.getSelection();
+    if (selected && !selected.isCollapsed) return false;
+    const width = pageWidth();
+    const x = Math.abs(window.scrollX);
+    const maxX = Math.max(0, Math.min(scroller().scrollWidth - width, (pageCount() - 1) * width));
+    const target = Math.min(maxX, Math.round(x / width) * width);
+    if (Math.abs(x - target) <= 1) return false;
+    window.scrollTo(isRTL() ? -target : target, 0);
+    return true;
+  }
+
   function scheduleRelocate() {
     clearTimeout(state.relocateTimer);
     state.relocateTimer = setTimeout(() => {
-      if (!state.ready) return;
+      if (!state.ready || snapToPage()) return;
       const info = location();
       state.anchor = info.cfi;
       post('relocated', info);
@@ -577,10 +648,7 @@
     const range = document.createRange();
     range.setStart(a.node, a.offset);
     range.setEnd(b.node, Math.min(b.offset, b.node.length));
-    if (window.CSS && CSS.highlights) {
-      CSS.highlights.set('mb-search', new Highlight(range));
-      setTimeout(() => CSS.highlights.delete('mb-search'), 2500);
-    }
+    markSearch(range);
     const rect = range.getClientRects()[0] || range.getBoundingClientRect();
     if (isPaginated()) return { page: pageOfRect(rect) };
     const top = state.config.insets ? state.config.insets.top : 0;
@@ -686,7 +754,19 @@
     return lines;
   }
 
-  /// Draws `state.speech` (or nothing), in document coordinates so the boxes scroll with the text.
+  /// Marks a search hit for a moment after jumping to it, drawn with the read-aloud boxes for the same reason.
+  function markSearch(range) {
+    clearTimeout(state.searchTimer);
+    state.searchRange = range;
+    drawSpeech();
+    state.searchTimer = setTimeout(() => {
+      state.searchRange = null;
+      drawSpeech();
+    }, 2500);
+  }
+
+  /// Draws `state.speech` and any search hit (or nothing), in document coordinates so the boxes scroll with the
+  /// text. Returns whether the speech mark has boxes.
   function drawSpeech() {
     const layer = speechLayer();
     const boxes = [];
@@ -700,6 +780,8 @@
         if (word) for (const box of lineBoxes(word)) boxes.push(['word', box]);
       }
     }
+    const spoken = boxes.length > 0;
+    if (state.searchRange) for (const box of lineBoxes(state.searchRange)) boxes.push(['search', box]);
     while (layer.children.length < boxes.length) layer.appendChild(document.createElement('div'));
     while (layer.children.length > boxes.length) layer.lastChild.remove();
     boxes.forEach(([kind, box], i) => {
@@ -710,7 +792,7 @@
       div.style.width = `${box.right - box.left + 2}px`;
       div.style.height = `${box.bottom - box.top}px`;
     });
-    return !!speech && boxes.length > 0;
+    return !!speech && spoken;
   }
 
   /// Marks the sentence (and word) being read. `sequence` orders the calls: native code may send them out of
@@ -987,6 +1069,8 @@
       if (active === selectionActive) return;
       selectionActive = active;
       post('selection', { active });
+      // A selection may have scrolled the page part-way; it goes back to a page boundary once it's done.
+      if (!active) scheduleRelocate();
     });
     // Styles go in before first paint; layout starts once the DOM exists.
     applyStyles();
@@ -1000,8 +1084,18 @@
 
   window.MB = Object.freeze({
     configure(config) {
+      const modeChanged = 'mode' in config && config.mode !== state.config.mode;
       state.config = Object.assign({}, state.config, config);
       if (wrapperKind) { layoutWrapper(); return { pageCount: 1, rtl: false }; }
+      if (modeChanged) {
+        // Lines that were pushed past a column break keep that gap after the columns go, until the body is
+        // laid out from scratch.
+        applyStyles();
+        const display = document.body.style.display;
+        document.body.style.display = 'none';
+        void document.body.offsetHeight;
+        document.body.style.display = display;
+      }
       return relayout('configure');
     },
     goToPosition(position) {

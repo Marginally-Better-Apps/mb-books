@@ -1,80 +1,86 @@
 import AVFoundation
 import SwiftUI
 
-/// Playback controls shown in the reader while listening.
+/// Playback controls, docked in the reader's bottom row beside the menu button while listening.
+/// The reader's headphones button opens the listening options.
 struct ListenBar: View {
     let session: ListeningSession
-    let openSettings: () -> Void
+
+    // Sizes grow with Dynamic Type, but only so far: the bar must still fit beside the menu button on a
+    // 375 pt wide iPhone, and stay inside the page's bottom margin.
+    @ScaledMetric(relativeTo: .body) private var scaledGlyph: CGFloat = 17
+    @ScaledMetric(relativeTo: .body) private var scaledPlayGlyph: CGFloat = 22
+    @ScaledMetric(relativeTo: .body) private var scaledControl: CGFloat = 44
+
+    private var glyph: CGFloat { min(scaledGlyph, 21) }
+    private var playGlyph: CGFloat { min(scaledPlayGlyph, 26) }
+    private var side: CGFloat { min(scaledControl, 46) }
 
     var body: some View {
-        VStack(spacing: 8) {
-            if !session.isFollowing {
-                Button {
-                    session.returnToNarration()
-                } label: {
-                    Label("Return to Narration", systemImage: "arrow.uturn.backward")
-                        .font(.footnote.weight(.semibold))
-                        .padding(.horizontal, 14)
-                        .padding(.vertical, 8)
-                }
-                .buttonStyle(.glass)
-                .accessibilityIdentifier("listen.return")
-                .transition(.opacity.combined(with: .scale(scale: 0.9)))
-            }
-            HStack(spacing: 4) {
-                control("backward.fill", label: "Previous Sentence", id: "listen.back") { session.skip(by: -1) }
-                Button {
-                    session.togglePlayback()
-                } label: {
-                    ZStack {
-                        if session.state == .loading || session.isWaiting {
-                            ProgressView()
-                        } else {
-                            Image(systemName: session.isPlaying ? "pause.fill" : "play.fill")
-                                .font(.system(size: 22, weight: .semibold))
-                                .contentTransition(.symbolEffect(.replace))
-                        }
+        HStack(spacing: 4) {
+            control("backward.fill", label: "Previous Sentence", id: "listen.back") { session.skip(by: -1) }
+            Button {
+                session.togglePlayback()
+            } label: {
+                ZStack {
+                    if session.state == .loading || session.isWaiting {
+                        ProgressView()
+                    } else {
+                        Image(systemName: session.isPlaying ? "pause.fill" : "play.fill")
+                            .font(.system(size: playGlyph, weight: .semibold))
+                            .contentTransition(.symbolEffect(.replace))
                     }
-                    .frame(width: 52, height: 48)
+                }
+                .frame(width: side + 8, height: side + 4)
+                .contentShape(.rect)
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel(session.isPlaying ? "Pause" : "Play")
+            .accessibilityShowsLargeContentViewer {
+                Label(session.isPlaying ? "Pause" : "Play", systemImage: session.isPlaying ? "pause.fill" : "play.fill")
+            }
+            .accessibilityIdentifier("listen.playPause")
+            control("forward.fill", label: "Next Sentence", id: "listen.forward") { session.skip(by: 1) }
+            Menu {
+                Picker("Speed", selection: Binding(
+                    get: { session.preferences.speed }, set: { session.preferences.speed = $0 })) {
+                    ForEach(ListeningPreferences.speeds, id: \.self) { speed in
+                        Text(Self.speedLabel(speed)).tag(speed)
+                    }
+                }
+            } label: {
+                Text(Self.speedLabel(session.preferences.speed))
+                    .font(.footnote.weight(.semibold).monospacedDigit())
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.6)
+                    .frame(width: side + 4, height: side)
                     .contentShape(.rect)
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel(session.isPlaying ? "Pause" : "Play")
-                .accessibilityIdentifier("listen.playPause")
-                control("forward.fill", label: "Next Sentence", id: "listen.forward") { session.skip(by: 1) }
-                Menu {
-                    Picker("Speed", selection: Binding(
-                        get: { session.preferences.speed }, set: { session.preferences.speed = $0 })) {
-                        ForEach(ListeningPreferences.speeds, id: \.self) { speed in
-                            Text(Self.speedLabel(speed)).tag(speed)
-                        }
-                    }
-                } label: {
-                    Text(Self.speedLabel(session.preferences.speed))
-                        .font(.footnote.weight(.semibold).monospacedDigit())
-                        .frame(width: 48, height: 44)
-                        .contentShape(.rect)
-                }
-                .accessibilityLabel("Speed")
-                .accessibilityIdentifier("listen.speed")
-                control("ellipsis", label: "Listening Options", id: "listen.options", action: openSettings)
-                control("xmark", label: "Stop Listening", id: "listen.stop") { session.stop() }
             }
-            .padding(.horizontal, 8)
-            .glassEffect(.regular.interactive(), in: .capsule)
+            // Primary like the buttons beside it, rather than the accent a menu takes by default.
+            .tint(.primary)
+            .accessibilityLabel("Speed")
+            .accessibilityShowsLargeContentViewer {
+                Label("Speed \(Self.speedLabel(session.preferences.speed))", systemImage: "gauge.with.dots.needle.67percent")
+            }
+            .accessibilityIdentifier("listen.speed")
+            // Not an X: that's Close Book, just above.
+            control("stop.fill", label: "Stop Listening", id: "listen.stop") { session.stop() }
         }
-        .animation(.smooth(duration: 0.25), value: session.isFollowing)
+        .padding(.horizontal, 8)
+        .glassEffect(.regular.interactive(), in: .capsule)
     }
 
     private func control(_ systemImage: String, label: LocalizedStringKey, id: String, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Image(systemName: systemImage)
-                .font(.system(size: 17, weight: .medium))
-                .frame(width: 44, height: 44)
+                .font(.system(size: glyph, weight: .medium))
+                .frame(width: side, height: side)
                 .contentShape(.rect)
         }
         .buttonStyle(.plain)
         .accessibilityLabel(label)
+        // The glyphs stop growing with Dynamic Type; the large content viewer shows them bigger instead.
+        .accessibilityShowsLargeContentViewer { Label(label, systemImage: systemImage) }
         .accessibilityIdentifier(id)
     }
 
@@ -87,6 +93,9 @@ struct ListenBar: View {
 struct ListenPill: View {
     let session: ListeningSession
 
+    @ScaledMetric(relativeTo: .body) private var glyph: CGFloat = 16
+    @ScaledMetric(relativeTo: .body) private var side: CGFloat = 44
+
     var body: some View {
         Button {
             session.togglePlayback()
@@ -96,15 +105,19 @@ struct ListenPill: View {
                     ProgressView()
                 } else {
                     Image(systemName: session.isPlaying ? "pause.fill" : "play.fill")
-                        .font(.system(size: 16, weight: .semibold))
+                        .font(.system(size: min(glyph, 20), weight: .semibold))
                 }
             }
-            .frame(width: 44, height: 44)
+            // Capped to stay inside the page's bottom margin.
+            .frame(width: min(side, 52), height: min(side, 52))
             .contentShape(.circle)
         }
         .buttonStyle(.plain)
         .glassEffect(.regular.interactive(), in: .circle)
         .accessibilityLabel(session.isPlaying ? "Pause" : "Play")
+        .accessibilityShowsLargeContentViewer {
+            Label(session.isPlaying ? "Pause" : "Play", systemImage: session.isPlaying ? "pause.fill" : "play.fill")
+        }
         .accessibilityIdentifier("listen.pill")
     }
 }
@@ -114,16 +127,25 @@ struct ListenSettingsView: View {
     @Bindable var session: ListeningSession
 
     @Environment(\.dismiss) private var dismiss
+    /// Opens at medium so the page being read stays in view; the long voice list takes the full height.
+    @State private var detent = PresentationDetent.medium
+    @State private var detentBeforeVoices = PresentationDetent.medium
 
     var body: some View {
         NavigationStack {
             Form {
-                if session.supportsNaturalVoices {
-                    NaturalVoicesSection(session: session)
-                }
-                SystemVoicesSection(session: session)
-
                 Section("Playback") {
+                    NavigationLink {
+                        VoicePicker(session: session)
+                            .onAppear {
+                                detentBeforeVoices = detent
+                                detent = .large
+                            }
+                            .onDisappear { detent = detentBeforeVoices }
+                    } label: {
+                        LabeledContent("Voice", value: voiceName)
+                    }
+                    .accessibilityIdentifier("listen.voice")
                     Picker("Speed", selection: $session.preferences.speed) {
                         ForEach(ListeningPreferences.speeds, id: \.self) { speed in
                             Text(ListenBar.speedLabel(speed)).tag(speed)
@@ -144,57 +166,118 @@ struct ListenSettingsView: View {
                     Text("Page numbers, notes, captions, code listings, and front and back matter like the copyright page and index are left out.")
                 }
             }
-            .navigationTitle("Voice")
+            .navigationTitle("Listening")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
-                    Button("Done", systemImage: "xmark") { dismiss() }
+                    Button(role: .close) { dismiss() }
                         .accessibilityIdentifier("listen.done")
                 }
             }
         }
-        .presentationDetents([.large])
+        .presentationDetents([.medium, .large], selection: $detent)
         .onAppear { session.prewarm() }
         .onDisappear { VoicePreview.shared.stop() }
     }
+
+    /// The voice that reads now: a natural voice once they're installed, otherwise the Apple voice. While they
+    /// download, the chosen natural voice, so the choice reads as kept.
+    private var voiceName: String {
+        if case .downloading = NeuralVoiceStore.shared.state, session.supportsNaturalVoices,
+           let natural = session.preferences.naturalVoice {
+            return String(localized: "\(natural.name) (after download)")
+        }
+        return switch session.resolvedVoice {
+        case .natural(let voice): voice.name
+        case .system(let identifier):
+            SystemVoices.voice(for: session.language, preferred: identifier)?.name ?? String(localized: "Default")
+        }
+    }
 }
 
-/// A row in the voice list: a preview button, the name, and a checkmark when chosen.
+/// Every voice that can read the book, with samples to hear before choosing.
+private struct VoicePicker: View {
+    @Bindable var session: ListeningSession
+
+    /// Until the natural voices are installed, the Apple voices come first: they're the ones that read right now.
+    /// Decided when the list opens, so finishing a download doesn't reorder it under the reader's finger.
+    @State private var listsNaturalVoicesFirst = NeuralVoiceStore.shared.isReady
+
+    var body: some View {
+        Form {
+            if listsNaturalVoicesFirst {
+                if session.supportsNaturalVoices { NaturalVoicesSection(session: session) }
+                SystemVoicesSection(session: session)
+            } else {
+                SystemVoicesSection(session: session)
+                if session.supportsNaturalVoices { NaturalVoicesSection(session: session) }
+            }
+        }
+        .navigationTitle("Voice")
+        .navigationBarTitleDisplayMode(.inline)
+        .sensoryFeedback(.selection, trigger: voiceSelection)
+        .onDisappear { VoicePreview.shared.stop() }
+    }
+
+    /// The chosen natural voice and Apple voice, so picking either gives a tap of feedback.
+    private var voiceSelection: [String?] {
+        let natural: String? = if case .natural(let id) = session.preferences.voice { id } else { nil }
+        return [natural, session.preferences.systemVoice(for: session.language)]
+    }
+}
+
+/// A row in the voice list: a preview button, the name, and a checkmark when chosen. A voice that needs the natural
+/// voices downloaded first shows nothing extra; the section's download row and footer already say so.
 private struct VoiceRow: View {
+    enum Status { case available, needsDownload, pending }
+
     let name: String
     let detail: String
     let isSelected: Bool
+    var status = Status.available
     let isPreviewing: Bool
     let id: String
     let preview: () -> Void
     let select: () -> Void
 
     var body: some View {
-        HStack(spacing: 12) {
+        HStack(spacing: 4) {
             Button(action: preview) {
                 Image(systemName: isPreviewing ? "stop.circle.fill" : "play.circle.fill")
                     .font(.title2)
                     .symbolRenderingMode(.hierarchical)
                     .contentTransition(.symbolEffect(.replace))
+                    .frame(width: 44, height: 44)
+                    .contentShape(.rect)
             }
             .buttonStyle(.borderless)
+            .padding(.leading, -8)
             .accessibilityLabel(isPreviewing ? "Stop Sample" : "Play Sample of \(name)")
             .accessibilityIdentifier("voice.preview.\(id)")
             Button(action: select) {
                 HStack {
                     VStack(alignment: .leading, spacing: 2) {
                         Text(name).foregroundStyle(.primary)
-                        Text(detail).font(.caption).foregroundStyle(.secondary)
+                        Text(status == .pending ? String(localized: "Will be used after download") : detail)
+                            .font(.caption).foregroundStyle(.secondary)
                     }
                     Spacer()
-                    if isSelected {
-                        Image(systemName: "checkmark").font(.body.weight(.semibold)).foregroundStyle(.tint)
+                    switch status {
+                    case .needsDownload:
+                        EmptyView()
+                    case .pending:
+                        Image(systemName: "clock").foregroundStyle(.secondary)
+                    case .available:
+                        if isSelected {
+                            Image(systemName: "checkmark").font(.body.weight(.semibold)).foregroundStyle(.tint)
+                        }
                     }
                 }
                 .contentShape(.rect)
             }
             .buttonStyle(.plain)
             .accessibilityAddTraits(isSelected ? .isSelected : [])
+            .accessibilityHint(status == .needsDownload ? Text("Downloads the natural voices") : Text(verbatim: ""))
             .accessibilityIdentifier("voice.select.\(id)")
         }
     }
@@ -205,30 +288,66 @@ private struct NaturalVoicesSection: View {
     private var store: NeuralVoiceStore { .shared }
     private var preview: VoicePreview { .shared }
 
+    /// The voice tapped before the natural voices are downloaded, while asking to download them.
+    @State private var downloadCandidate: NeuralVoiceCatalog.Voice?
+
     var body: some View {
         Section {
             if !store.isReady { VoiceModelRow() }
             ForEach(NeuralVoiceCatalog.voices) { voice in
                 VoiceRow(
                     name: voice.name, detail: voice.description,
-                    isSelected: session.resolvedVoice == .natural(voice),
+                    isSelected: session.resolvedVoice == .natural(voice) || status(of: voice) == .pending,
+                    status: status(of: voice),
                     isPreviewing: preview.isPlaying(voice.id), id: voice.id,
                     preview: {
                         session.pause()
                         preview.toggle(voice)
                     },
                     select: {
-                        session.preferences.voice = .natural(voice.id)
-                        if !store.isReady { store.download() }
+                        // Downloading is a choice of its own: ask first, and never start reading.
+                        if store.isReady || store.isDownloading {
+                            session.preferences.voice = .natural(voice.id)
+                        } else {
+                            downloadCandidate = voice
+                        }
                     })
             }
         } header: {
             Text("Natural Voices")
         } footer: {
-            Text("Natural voices run entirely on this device, so nothing you read is sent anywhere. They read English books.")
+            VStack(alignment: .leading, spacing: 6) {
+                if !store.isReady && !store.isDownloading {
+                    Text("Play a sample to hear any voice. Natural voices are a one-time download.")
+                }
+                Text("Natural voices run entirely on this device, so nothing you read is sent anywhere. They read English books.")
+            }
+        }
+        .confirmationDialog(
+            "Download Natural Voices?", isPresented: Binding(
+                get: { downloadCandidate != nil }, set: { if !$0 { downloadCandidate = nil } }),
+            titleVisibility: .visible, presenting: downloadCandidate
+        ) { voice in
+            Button("Download") {
+                // The chosen voice reads once the download finishes; until then the Apple voice stands in.
+                session.preferences.voice = .natural(voice.id)
+                store.download()
+            }
+            .accessibilityIdentifier("listen.confirmDownload")
+            Button("Cancel", role: .cancel) {}
+        } message: { _ in
+            Text("The natural voices are \(ByteCountFormatStyle().format(NeuralVoiceCatalog.downloadSize)) and run on this device. Wi-Fi is recommended.")
         }
         .onChange(of: store.state) { _, state in
             if state == .ready { session.voiceDidChange() }
+        }
+    }
+
+    private func status(of voice: NeuralVoiceCatalog.Voice) -> VoiceRow.Status {
+        switch store.state {
+        case .ready: .available
+        case .downloading: session.preferences.naturalVoice == voice ? .pending : .available
+        case .notDownloaded, .failed: .needsDownload
         }
     }
 }
@@ -294,7 +413,8 @@ struct VoiceModelRow: View {
                 HStack {
                     Label("Download Natural Voices", systemImage: "arrow.down.circle")
                     Spacer()
-                    Text(ByteCountFormatStyle().format(NeuralVoiceCatalog.downloadSize)).foregroundStyle(.secondary)
+                    // Plain secondary here would be the button's dimmed tint, too faint to read.
+                    Text(ByteCountFormatStyle().format(NeuralVoiceCatalog.downloadSize)).foregroundStyle(Color(.secondaryLabel))
                 }
             }
             .accessibilityIdentifier("listen.downloadModel")
@@ -448,7 +568,7 @@ nonisolated struct SpeechSection: Identifiable, Equatable, Sendable {
         }.joined(separator: " ")
     }
 
-    /// "Leaves out 12 page number, 3 note reference": the most common omissions.
+    /// "Skips 12 page numbers and 3 note references": the most common omissions.
     static func omissionSummary(_ omissions: [SpeechOmission]) -> String? {
         var counts: [SpeechSkipReason: Int] = [:]
         for omission in omissions { counts[omission.reason, default: 0] += 1 }
@@ -456,7 +576,34 @@ nonisolated struct SpeechSection: Identifiable, Equatable, Sendable {
             lhs.value == rhs.value ? lhs.key.rawValue < rhs.key.rawValue : lhs.value > rhs.value
         }.map { ($0.key, $0.value) }
         guard !top.isEmpty else { return nil }
-        let items: [String] = top.prefix(3).map { reason, count in "\(count) \(reason.title.lowercased())" }
-        return String(localized: "Leaves out ") + items.joined(separator: ", ")
+        let items = top.prefix(3).map { reason, count in countedOmission(reason, count) }
+        return String(localized: "Skips \(items.formatted(.list(type: .and)))")
+    }
+
+    /// "1 note reference", "3 note references": a count with its noun agreeing, through automatic grammar agreement.
+    static func countedOmission(_ reason: SpeechSkipReason, _ count: Int) -> String {
+        let phrase: AttributedString = switch reason {
+        case .auxiliary: AttributedString(localized: "^[\(count) supplementary passage](inflect: true)")
+        case .cover: AttributedString(localized: "^[\(count) cover](inflect: true)")
+        case .titlePage: AttributedString(localized: "^[\(count) title page](inflect: true)")
+        case .copyright: AttributedString(localized: "^[\(count) copyright notice](inflect: true)")
+        case .tableOfContents: AttributedString(localized: "^[\(count) table of contents](inflect: true)")
+        case .index: AttributedString(localized: "^[\(count) index](inflect: true)")
+        case .notes: AttributedString(localized: "^[\(count) note](inflect: true)")
+        case .bibliography: AttributedString(localized: "^[\(count) bibliography](inflect: true)")
+        case .colophon: AttributedString(localized: "^[\(count) colophon](inflect: true)")
+        case .boilerplate: AttributedString(localized: "^[\(count) passage of license text](inflect: true)")
+        case .pageNumber: AttributedString(localized: "^[\(count) page number](inflect: true)")
+        case .noteReference: AttributedString(localized: "^[\(count) note reference](inflect: true)")
+        case .hidden: AttributedString(localized: "^[\(count) passage of hidden text](inflect: true)")
+        case .navigation: AttributedString(localized: "^[\(count) navigation list](inflect: true)")
+        case .pullQuote: AttributedString(localized: "^[\(count) pull quote](inflect: true)")
+        case .runningHead: AttributedString(localized: "^[\(count) running head](inflect: true)")
+        case .annotation: AttributedString(localized: "^[\(count) pronunciation guide](inflect: true)")
+        case .illustration: AttributedString(localized: "^[\(count) illustration caption](inflect: true)")
+        case .code: AttributedString(localized: "^[\(count) code listing](inflect: true)")
+        case .empty: AttributedString(localized: "^[\(count) empty passage](inflect: true)")
+        }
+        return String(phrase.characters)
     }
 }

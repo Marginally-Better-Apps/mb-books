@@ -69,6 +69,8 @@ final class ReaderViewController: UIViewController {
     private var isSpeechNavigation = false
     /// Orders read-aloud marks, so `reader.js` can drop any that arrive after a newer one.
     private var speechSequence = 0
+    /// Set when VoiceOver turns the page, so the new page is announced once it reports where it is.
+    private var announcesPage = false
 
     init(model: ReaderModel) {
         self.model = model
@@ -110,6 +112,13 @@ final class ReaderViewController: UIViewController {
         updateBackground()
         model.navigator = self
         model.speechFollower = self
+        NotificationCenter.default.addObserver(
+            self, selector: #selector(reduceMotionDidChange),
+            name: UIAccessibility.reduceMotionStatusDidChangeNotification, object: nil)
+    }
+
+    @objc private func reduceMotionDidChange() {
+        installPresenter()
     }
 
     override func viewDidLayoutSubviews() {
@@ -119,6 +128,8 @@ final class ReaderViewController: UIViewController {
         updateScrollFades()
         if lastLayoutSize == .zero {
             lastLayoutSize = size
+            // Chapters are made before the safe area is known; their pages take its inset now.
+            updatePageInsets()
             spreadPlan = makeSpreadPlan()
             installUserScripts()
             go(to: model.location, animated: false)
@@ -130,6 +141,7 @@ final class ReaderViewController: UIViewController {
 
     override func viewSafeAreaInsetsDidChange() {
         super.viewSafeAreaInsetsDidChange()
+        updatePageInsets()
         if lastLayoutSize != .zero { scheduleReconfigure() }
     }
 
@@ -158,6 +170,7 @@ final class ReaderViewController: UIViewController {
 
         let chapter = ChapterView(configuration: configuration)
         chapter.frame = view.bounds
+        chapter.horizontalInset = pageInset
         chapter.autoresizingMask = [.flexibleWidth, .flexibleHeight]
         chapter.webView.navigationDelegate = self
         chapter.webView.uiDelegate = self
@@ -170,6 +183,7 @@ final class ReaderViewController: UIViewController {
             },
             listen: { [weak self] in self?.model.startListening(fromSelection: true) })
         chapter.webView.scrollView.panGestureRecognizer.addTarget(self, action: #selector(handleScrollPan(_:)))
+        chapter.accessibilityScrollHandler = { [weak self] direction in self?.accessibilityTurn(direction) ?? false }
         return chapter
     }
 
@@ -190,9 +204,7 @@ final class ReaderViewController: UIViewController {
 
     private func scriptConfig() -> ScriptConfiguration {
         let style = model.preferences.style
-        let layout = ReaderLayout(
-            size: view.bounds.size, safeArea: view.safeAreaInsets, margins: style.margins,
-            fontScale: model.preferences.fontScale, scrolls: model.isScrollMode, allowsColumns: style.allowMultipleColumns)
+        let layout = readerLayout
         let palette = model.palette
         return ScriptConfiguration(
             mode: model.isScrollMode ? "scroll" : "paginated",
@@ -205,12 +217,29 @@ final class ReaderViewController: UIViewController {
             letterSpacing: style.characterSpacing,
             wordSpacing: style.wordSpacing,
             justify: style.justify,
-            dark: model.isDarkAppearance,
+            // Marks and highlights are tuned to the page they sit on, which a theme can make dark in light mode.
+            dark: model.palette.isDark,
             colors: .init(
                 background: palette.background.cssHex,
                 text: palette.text.cssHex,
                 link: palette.link.cssHex,
                 override: model.preferences.theme.overridesPublisherColors(dark: model.isDarkAppearance)))
+    }
+
+    private var readerLayout: ReaderLayout {
+        let style = model.preferences.style
+        return ReaderLayout(
+            size: view.bounds.size, safeArea: view.safeAreaInsets, margins: style.margins,
+            fontScale: model.preferences.fontScale, scrolls: model.isScrollMode, allowsColumns: style.allowMultipleColumns)
+    }
+
+    /// Reflowable pages sit inside the side safe areas, so the Dynamic Island's inset is applied once at the
+    /// screen's edges rather than to every column. Fixed-layout pages still fill the screen.
+    private var pageInset: CGFloat { model.isFixedLayout ? 0 : readerLayout.inset }
+
+    private func updatePageInsets() {
+        let inset = pageInset
+        for chapter in chapters { chapter.horizontalInset = inset }
     }
 
     private func updateBackground() {
@@ -256,6 +285,8 @@ final class ReaderViewController: UIViewController {
 
     private var desiredPresenterKind: PresenterKind {
         if publication.layout == .roll || model.isScrollMode { return .push }
+        // Reduce Motion cross-fades pages instead; the chosen style comes back when it's turned off.
+        if UIAccessibility.isReduceMotionEnabled { return .fade }
         switch model.preferences.pageTurn {
         case .curl: return .curl(mirrored: publication.readingProgression == .rtl)
         case .fade: return .fade
@@ -316,6 +347,7 @@ final class ReaderViewController: UIViewController {
 
     private func reconfigure() {
         updateBackground()
+        updatePageInsets()
         installUserScripts()
         installPresenter()
         updateScrolling()
@@ -577,19 +609,22 @@ final class ReaderViewController: UIViewController {
         switch body["type"] as? String {
         case "ready":
             chapter.didBecomeReady(url: message.frameInfo.request.url, rtl: body["rtl"] as? Bool ?? false)
+            if chapter.isReady { chapter.pageCount = body["pageCount"] as? Int }
         case "layout":
+            chapter.pageCount = body["pageCount"] as? Int ?? chapter.pageCount
             didChangeLayout(chapter, body)
         case "relocated" where isCurrent:
+            chapter.pageCount = body["pageCount"] as? Int ?? chapter.pageCount
             didRelocate(body)
         case "tap" where isCurrent:
-            didTap(at: CGPoint(x: body.double("x"), y: body.double("y")))
+            didTap(at: CGPoint(x: body.double("x") + current.horizontalInset, y: body.double("y")))
         case "link" where isCurrent:
             if let href = body["href"] as? String, let url = URL(string: href) { follow(url) }
         case "footnote" where isCurrent:
-            model.popover = ReaderPopover(content: .footnote(body["text"] as? String ?? ""), rect: body.rect("rect"))
+            model.popover = ReaderPopover(content: .footnote(body["text"] as? String ?? ""), rect: pageRect(body))
         case "highlightTap" where isCurrent:
             if let id = (body["id"] as? String).flatMap(UUID.init) {
-                model.popover = ReaderPopover(content: .highlight(id), rect: body.rect("rect"))
+                model.popover = ReaderPopover(content: .highlight(id), rect: pageRect(body))
             }
         case "selection" where isCurrent:
             hasSelection = body["active"] as? Bool ?? false
@@ -627,6 +662,7 @@ final class ReaderViewController: UIViewController {
                 to: Locator(spineIndex: first),
                 page: isSpread ? spreadPlan.spreadIndex(containing: first) : 0,
                 pageCount: isSpread ? spreadPlan.spreads.count : 1)
+            announcePageIfNeeded()
         case .roll:
             if let location = try? await call("return MB.rollLocation()", in: chapter) as? [String: Any], chapter === current {
                 didRelocate(location)
@@ -640,6 +676,7 @@ final class ReaderViewController: UIViewController {
         let locator = Locator(
             spineIndex: spineIndex, progression: location.double("progression"), cfi: location["cfi"] as? String)
         model.didRelocate(to: locator, page: location.int("page"), pageCount: max(1, location.int("pageCount")))
+        announcePageIfNeeded()
     }
 
     /// Fonts, images, or settings changed the layout: keep the reader's place, or a spare's first or last page.
@@ -663,6 +700,11 @@ final class ReaderViewController: UIViewController {
 
     /// Taps that `reader.js` reports: the middle of the page toggles the chrome, and the edges of
     /// fixed-layout pages turn them. `handleEdgeTap(_:)` turns reflowable pages without waiting for WebKit's click.
+    /// A rect `reader.js` reported, in the reader's coordinates rather than the inset page's.
+    private func pageRect(_ body: [String: Any]) -> CGRect {
+        body.rect("rect").offsetBy(dx: current.horizontalInset, dy: 0)
+    }
+
     private func didTap(at point: CGPoint) {
         if model.popover != nil {
             model.popover = nil
@@ -746,6 +788,29 @@ final class ReaderViewController: UIViewController {
         }
     }
 
+    /// VoiceOver's three-finger swipes turn pages. The direction is the swipe's: up for the next page and down for
+    /// the previous, like scrolling a document. Sideways, a swipe left brings in the page on the right, which is the
+    /// next one in left-to-right books, and like the arrow keys, it scrolls a screen rather than leaving the chapter
+    /// in scroll mode.
+    private func accessibilityTurn(_ direction: UIAccessibilityScrollDirection) -> Bool {
+        switch direction {
+        case .up, .next: advance(forward: true)
+        case .down, .previous: advance(forward: false)
+        case .left: advance(forward: !isRTLProgression)
+        case .right: advance(forward: isRTLProgression)
+        @unknown default: return false
+        }
+        announcesPage = true
+        return true
+    }
+
+    /// Tells VoiceOver where a three-finger swipe landed, once the new page reports its position.
+    private func announcePageIfNeeded() {
+        guard announcesPage else { return }
+        announcesPage = false
+        UIAccessibility.post(notification: .pageScrolled, argument: model.pageLabel)
+    }
+
     private func runQueuedTurn() {
         guard let side = queuedTurn else { return }
         queuedTurn = nil
@@ -759,7 +824,11 @@ final class ReaderViewController: UIViewController {
         guard width > 0, side == .left || side == .right else { return nil }
         let page = (scrollView.contentOffset.x / width).rounded()
         let target = (page + (side == .right ? 1 : -1)) * width
-        let maxX = max(0, scrollView.contentSize.width - width)
+        var maxX = max(0, scrollView.contentSize.width - width)
+        // Empty columns after the last text don't count as pages; turning past it goes on to the next chapter.
+        if !current.isRTL, let pageCount = current.pageCount {
+            maxX = min(maxX, CGFloat(max(pageCount - 1, 0)) * width)
+        }
         guard target >= -1, target <= maxX + 1 else { return nil }
         return CGPoint(x: min(max(target, 0), maxX), y: 0)
     }
@@ -961,7 +1030,11 @@ extension ReaderViewController: ReaderNavigator {
         guard let value = try? await call("return JSON.stringify(MB.selection())") as? String,
               let data = value.data(using: .utf8)
         else { return nil }
-        return try? JSONDecoder().decode(TextSelection.self, from: data)
+        guard var selection = try? JSONDecoder().decode(TextSelection.self, from: data) else { return nil }
+        // In the reader's coordinates rather than the inset page's, like `pageRect`.
+        let bounds = selection.bounds
+        selection.bounds = .init(x: bounds.x + current.horizontalInset, y: bounds.y, width: bounds.width, height: bounds.height)
+        return selection
     }
 
     func clearSelection() {
@@ -1174,6 +1247,28 @@ struct ScriptConfiguration: Encodable, Equatable {
 
     var json: String {
         (try? JSONEncoder().encode(self)).map { String(decoding: $0, as: UTF8.self) } ?? "{}"
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case mode, insets, columns, fontScale, fontFamily, bold, lineHeight, letterSpacing, wordSpacing, justify, dark, colors
+    }
+
+    /// Unset options go out as `null` rather than missing: `reader.js` merges each configuration into the last,
+    /// so a missing key would keep the previous theme's font or line spacing.
+    func encode(to encoder: any Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(mode, forKey: .mode)
+        try container.encode(insets, forKey: .insets)
+        try container.encode(columns, forKey: .columns)
+        try container.encode(fontScale, forKey: .fontScale)
+        try container.encode(fontFamily, forKey: .fontFamily)
+        try container.encode(bold, forKey: .bold)
+        try container.encode(lineHeight, forKey: .lineHeight)
+        try container.encode(letterSpacing, forKey: .letterSpacing)
+        try container.encode(wordSpacing, forKey: .wordSpacing)
+        try container.encode(justify, forKey: .justify)
+        try container.encode(dark, forKey: .dark)
+        try container.encode(colors, forKey: .colors)
     }
 }
 
