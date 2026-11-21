@@ -490,6 +490,17 @@ final class ListeningStorageTests: XCTestCase {
         XCTAssertTrue(sections[1].summary.hasSuffix("min"), sections[1].summary)
     }
 
+    func testOmissionSummaryAgreesInNumber() {
+        func omissions(_ counts: [(SpeechSkipReason, Int)]) -> [SpeechOmission] {
+            counts.flatMap { reason, count in Array(repeating: SpeechOmission(reason: reason, text: "x"), count: count) }
+        }
+        XCTAssertEqual(SpeechSection.omissionSummary(omissions([(.noteReference, 1), (.notes, 1)])),
+                       "Skips 1 note reference and 1 note")
+        XCTAssertEqual(SpeechSection.omissionSummary(omissions([(.pageNumber, 12), (.noteReference, 3), (.illustration, 1)])),
+                       "Skips 12 page numbers, 3 note references, and 1 illustration caption")
+        XCTAssertNil(SpeechSection.omissionSummary([]))
+    }
+
     func testContentsPreferChapterEntriesOverCaptions() {
         let titles = ["PRIDE. and PREJUDICE", "Piling up the fire.", "CHAPTER I.", "“Mrs. Long and her nieces.”", "CHAPTER II.", "CHAPTER XI."]
         XCTAssertEqual(SpeechSection.chapterTitles(titles), ["Chapter I", "Chapter II", "Chapter XI"])

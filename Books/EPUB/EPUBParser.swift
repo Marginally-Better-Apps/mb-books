@@ -35,13 +35,13 @@ nonisolated enum EPUBError: LocalizedError, Equatable {
     case emptySpine
     case drmProtected
 
+    /// Plain-language reasons shown to readers; the associated values stay available for logs.
     var errorDescription: String? {
         switch self {
-        case .missingContainer: "This file isn't an EPUB. It has no META-INF/container.xml."
-        case .missingPackage: "The EPUB's package document is missing."
-        case .missingResource(let path): "The EPUB is missing \(path)."
-        case .emptySpine: "The EPUB has no readable content."
-        case .drmProtected: "This book is protected by DRM and can't be opened."
+        case .missingContainer: "This file isn't a valid EPUB book."
+        case .missingPackage, .missingResource: "The book is damaged or incomplete."
+        case .emptySpine: "This book has no pages to read."
+        case .drmProtected: "This book is copy-protected (DRM) and can't be opened."
         }
     }
 }

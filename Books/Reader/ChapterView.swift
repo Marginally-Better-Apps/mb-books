@@ -26,7 +26,11 @@ final class ChapterView: UIView {
     var isSettled = false
     /// Whether the document's own writing direction is right to left.
     private(set) var isRTL = false
+    /// Pages in the document as `reader.js` counts them, which leaves out empty columns at its end.
+    var pageCount: Int?
     var placement: Placement?
+    /// Handles VoiceOver's three-finger swipes that the page itself doesn't scroll for, such as turning pages.
+    var accessibilityScrollHandler: ((UIAccessibilityScrollDirection) -> Bool)?
     private var loadingURL: URL?
     private var navigation: WKNavigation?
     private var waiters: [CheckedContinuation<Bool, Never>] = []
@@ -35,7 +39,6 @@ final class ChapterView: UIView {
         webView = BookWebView(frame: .zero, configuration: configuration)
         super.init(frame: .zero)
         webView.frame = bounds
-        webView.autoresizingMask = [.flexibleWidth, .flexibleHeight]
         webView.isOpaque = false
         webView.backgroundColor = .clear
         #if DEBUG
@@ -55,6 +58,17 @@ final class ChapterView: UIView {
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 
+    /// How far the page sits in from each side, such as the Dynamic Island's inset in landscape.
+    /// The chapter's own background shows in the strips.
+    var horizontalInset: CGFloat = 0 {
+        didSet { if horizontalInset != oldValue { setNeedsLayout() } }
+    }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        webView.frame = bounds.insetBy(dx: min(horizontalInset, bounds.width / 4), dy: 0)
+    }
+
     /// Whether this is the page the reader interacts with. Spares stay silent, untouchable,
     /// and hidden from VoiceOver.
     var isActive = false {
@@ -63,6 +77,11 @@ final class ChapterView: UIView {
             accessibilityElementsHidden = !isActive
             webView.setAllMediaPlaybackSuspended(!isActive)
         }
+    }
+
+    override func accessibilityScroll(_ direction: UIAccessibilityScrollDirection) -> Bool {
+        guard isActive, let accessibilityScrollHandler else { return super.accessibilityScroll(direction) }
+        return accessibilityScrollHandler(direction)
     }
 
     /// Lets the web view scroll (scroll mode and rolls) or keeps it still for page turns.
@@ -114,6 +133,7 @@ final class ChapterView: UIView {
     /// Forgets the document, for example after its web content process ended.
     func reset() {
         document = nil
+        pageCount = nil
         isReady = false
         isSettled = false
         placement = nil

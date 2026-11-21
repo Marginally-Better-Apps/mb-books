@@ -269,15 +269,14 @@ nonisolated enum ZipError: LocalizedError, Equatable {
     case checksumMismatch(String)
     case unsafePath(String)
 
+    /// Plain-language reasons shown to readers; the associated values stay available for logs.
     var errorDescription: String? {
         switch self {
-        case .notAZip: "The file is not a valid EPUB archive."
-        case .corrupt(let detail): "The archive is damaged: \(detail)."
-        case .missingEntry(let path): "The archive is missing \(path)."
-        case .unsupportedCompression(let path, let method): "\(path) uses unsupported compression (\(method))."
-        case .encrypted: "This book is protected by DRM and can't be opened."
-        case .checksumMismatch(let path): "\(path) failed its integrity check."
-        case .unsafePath(let path): "The archive contains an unsafe path: \(path)."
+        case .notAZip: "This file isn't a valid EPUB book."
+        case .corrupt, .missingEntry, .checksumMismatch: "The book is damaged or incomplete."
+        case .unsupportedCompression: "This book is packaged in a way MB Books can't open."
+        case .encrypted: "This book is copy-protected (DRM) and can't be opened."
+        case .unsafePath: "This book contains files that can't be opened safely."
         }
     }
 }

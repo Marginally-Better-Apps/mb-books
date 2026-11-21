@@ -92,7 +92,7 @@ struct LaunchConfiguration {
             try SampleBook.make().write(to: url)
             await library.importBooks(from: [url], into: context)
         } catch {
-            library.importError = .init(fileName: url.lastPathComponent, message: error.localizedDescription)
+            library.reportFailure(error, fileName: url.lastPathComponent)
         }
     }
 }

@@ -49,20 +49,32 @@ struct GeneratedCover: View {
             colors: [Color(hue: hue, saturation: 0.45, brightness: 0.62), Color(hue: hue, saturation: 0.55, brightness: 0.38)],
             startPoint: .top, endPoint: .bottom)
             .overlay {
-                VStack(spacing: 8) {
-                    Text(title)
-                        .font(.system(.title3, design: .serif, weight: .semibold))
-                        .multilineTextAlignment(.center)
-                        .lineLimit(5)
-                        .minimumScaleFactor(0.5)
-                    Rectangle().fill(.white.opacity(0.5)).frame(width: 28, height: 1)
-                    Text(author)
-                        .font(.system(.caption, design: .serif))
-                        .lineLimit(2)
-                        .minimumScaleFactor(0.6)
+                GeometryReader { proxy in
+                    Group {
+                        // Below about 70 pt the title can't fit without truncating, so small covers show its initial.
+                        if proxy.size.width >= 70 {
+                            VStack(spacing: 8) {
+                                Text(title)
+                                    .font(.system(.title3, design: .serif, weight: .semibold))
+                                    .multilineTextAlignment(.center)
+                                    .lineLimit(5)
+                                    .minimumScaleFactor(0.5)
+                                Rectangle().fill(.white.opacity(0.5)).frame(width: 28, height: 1)
+                                Text(author)
+                                    .font(.system(.caption, design: .serif))
+                                    .lineLimit(2)
+                                    .minimumScaleFactor(0.6)
+                            }
+                            .padding(12)
+                        } else {
+                            Text(title.first.map { String($0).uppercased() } ?? "")
+                                .font(.system(.title2, design: .serif, weight: .semibold))
+                                .minimumScaleFactor(0.5)
+                        }
+                    }
+                    .foregroundStyle(.white)
+                    .frame(width: proxy.size.width, height: proxy.size.height)
                 }
-                .foregroundStyle(.white)
-                .padding(12)
             }
     }
 }
@@ -84,11 +96,16 @@ final class CoverCache {
     }
 }
 
-/// "NEW", a percentage, or "Finished", shown under covers.
+/// "NEW", a percentage, or "Finished", shown under covers. VoiceOver reads it through `bookAccessibility`.
 struct BookProgressBadge: View {
     let book: Book
 
     var body: some View {
+        badge.accessibilityHidden(true)
+    }
+
+    @ViewBuilder
+    private var badge: some View {
         if book.isFinished {
             Label("Finished", systemImage: "checkmark.circle.fill")
                 .labelStyle(.titleAndIcon)
@@ -109,67 +126,164 @@ struct BookProgressBadge: View {
     }
 }
 
+extension Book {
+    /// "New", "Finished", or a percentage: the badge under a cover, as VoiceOver reads it.
+    var progressDescription: String {
+        if isFinished { String(localized: "Finished") } else if isNew { String(localized: "New") } else { percentRead.formatted(.percent) }
+    }
+}
+
+extension View {
+    /// Reads a book's cover or row as "Title, Author", with its progress as the value.
+    /// Progress badges are hidden from VoiceOver, since this reads them.
+    func bookAccessibility(_ book: Book) -> some View {
+        accessibilityLabel("\(book.title), \(book.author)")
+            .accessibilityValue(book.progressDescription)
+    }
+}
+
+/// A book in a list: its cover, title, author, and progress, with an optional trailing accessory.
+struct BookRow<Accessory: View>: View {
+    let book: Book
+    let source: String
+    @ViewBuilder var accessory: Accessory
+
+    var body: some View {
+        HStack(spacing: 16) {
+            BookCover(book: book)
+                .frame(width: 52, height: 78)
+                .zoomSource(source)
+            VStack(alignment: .leading, spacing: 4) {
+                Text(book.title).font(.headline).lineLimit(2)
+                Text(book.author).font(.subheadline).foregroundStyle(.secondary).lineLimit(1)
+                BookProgressBadge(book: book).padding(.top, 2)
+            }
+            Spacer(minLength: 0)
+            accessory
+        }
+        .contentShape(.rect)
+    }
+}
+
+extension BookRow where Accessory == EmptyView {
+    init(book: Book, source: String) {
+        self.init(book: book, source: source) { EmptyView() }
+    }
+}
+
+/// The quiet "…" button beside a cover or row.
+struct BookMenuButton: View {
+    let book: Book
+
+    @State private var state = BookActionState()
+
+    var body: some View {
+        Menu {
+            BookActions(book: book, state: $state)
+        } label: {
+            Image(systemName: "ellipsis")
+                .font(.body.weight(.semibold))
+                .frame(width: 44, height: 44)
+                .contentShape(.rect)
+        }
+        // Menus take the accent color; this is a quiet secondary control, as in Apple Books.
+        .tint(.secondary)
+        // A full 44 pt tap target that lays out 36 pt tall, so the row under a cover stays compact.
+        .padding(.vertical, -4)
+        .padding(.trailing, -10)
+        .accessibilityLabel("More for \(book.title)")
+        .bookActionPresentations(book, state: $state)
+    }
+}
+
 /// The book actions shared by context menus and "…" buttons.
 struct BookActions: View {
     let book: Book
-    @Binding var isConfirmingRemoval: Bool
-    @Binding var isShowingDetails: Bool
-    @Binding var isAddingToCollection: Bool
+    @Binding var state: BookActionState
 
     @Environment(LibraryStore.self) private var library
 
     var body: some View {
-        Button("Book Details", systemImage: "info.circle") { isShowingDetails = true }
+        Button("Book Details", systemImage: "info.circle") { state.isShowingDetails = true }
         Divider()
         Button(book.wantToRead ? "Remove from Want to Read" : "Want to Read",
-               systemImage: book.wantToRead ? "minus.circle" : "plus.circle") {
+               systemImage: book.wantToRead ? "bookmark.fill" : "bookmark") {
             book.wantToRead.toggle()
+            state.wantToReadChanges += 1
         }
-        Button("Add to Collection…", systemImage: "text.badge.plus") { isAddingToCollection = true }
+        Button("Add to Collection…", systemImage: "rectangle.stack.badge.plus") { state.isAddingToCollection = true }
         if book.isFinished {
             Button("Mark as Still Reading", systemImage: "book") { book.markFinished(false) }
         } else {
-            Button("Mark as Finished", systemImage: "checkmark.circle") { book.markFinished(true) }
+            Button("Mark as Finished", systemImage: "checkmark.circle") {
+                book.markFinished(true)
+                state.finishes += 1
+            }
         }
         if let url = library.shareURL(for: book) {
             ShareLink("Share Book", item: url)
         }
         Divider()
-        Button("Remove…", systemImage: "trash", role: .destructive) { isConfirmingRemoval = true }
+        Button("Remove…", systemImage: "trash", role: .destructive) { state.isConfirmingRemoval = true }
     }
 }
 
-/// Attaches the context menu, details sheet, collection picker, and removal confirmation to a book view.
-struct BookInteractions: ViewModifier {
+/// What a book's actions present, plus counters that trigger their haptics.
+struct BookActionState {
+    var isConfirmingRemoval = false
+    var isShowingDetails = false
+    var isAddingToCollection = false
+    var wantToReadChanges = 0
+    var finishes = 0
+}
+
+/// Attaches the details sheet, collection picker, removal confirmation, and haptics that book actions use.
+private struct BookActionPresentations: ViewModifier {
     let book: Book
+    @Binding var state: BookActionState
 
     @Environment(\.modelContext) private var context
     @Environment(LibraryStore.self) private var library
-    @State private var isConfirmingRemoval = false
-    @State private var isShowingDetails = false
-    @State private var isAddingToCollection = false
 
     func body(content: Content) -> some View {
         content
-            .contextMenu {
-                BookActions(book: book, isConfirmingRemoval: $isConfirmingRemoval,
-                            isShowingDetails: $isShowingDetails, isAddingToCollection: $isAddingToCollection)
-            } preview: {
-                BookCover(book: book).frame(width: 220)
-                    .environment(library)
-            }
-            .confirmationDialog("Remove “\(book.title)”?", isPresented: $isConfirmingRemoval, titleVisibility: .visible) {
+            .confirmationDialog("Remove \"\(book.title)\"?", isPresented: $state.isConfirmingRemoval, titleVisibility: .visible) {
                 Button("Remove from Library", role: .destructive) { library.delete([book], from: context) }
             } message: {
                 Text("The book, its highlights, notes, and bookmarks will be deleted from this device.")
             }
-            .sheet(isPresented: $isShowingDetails) { BookDetailView(book: book) }
-            .sheet(isPresented: $isAddingToCollection) { CollectionPicker(books: [book]) }
+            .sheet(isPresented: $state.isShowingDetails) { BookDetailView(book: book) }
+            .sheet(isPresented: $state.isAddingToCollection) { CollectionPicker(books: [book]) }
+            .sensoryFeedback(.selection, trigger: state.wantToReadChanges)
+            .sensoryFeedback(.success, trigger: state.finishes)
+    }
+}
+
+/// Attaches the context menu and everything its actions present to a book view.
+struct BookInteractions: ViewModifier {
+    let book: Book
+
+    @Environment(LibraryStore.self) private var library
+    @State private var state = BookActionState()
+
+    func body(content: Content) -> some View {
+        content
+            .contextMenu {
+                BookActions(book: book, state: $state)
+            } preview: {
+                BookCover(book: book).frame(width: 220)
+                    .environment(library)
+            }
+            .bookActionPresentations(book, state: $state)
     }
 }
 
 extension View {
     func bookInteractions(_ book: Book) -> some View {
         modifier(BookInteractions(book: book))
+    }
+
+    fileprivate func bookActionPresentations(_ book: Book, state: Binding<BookActionState>) -> some View {
+        modifier(BookActionPresentations(book: book, state: state))
     }
 }

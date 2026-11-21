@@ -80,6 +80,48 @@ final class ReaderLogicTests: XCTestCase {
         XCTAssertTrue(BookSearcher.search("x", in: publication, container: container).isEmpty, "Single characters are ignored")
     }
 
+    func testSearchSnippetsLeaveOutNoteMarkersButKeepOffsets() throws {
+        let archive = try ZipArchive(url: Fixtures.write(SampleBook.make()))
+        let content = try Fixtures.temporaryDirectory()
+        try archive.extractAll(to: content)
+        let container = DirectoryContainer(root: content)
+        let publication = try EPUBParser.parse(container)
+
+        let result = try XCTUnwrap(BookSearcher.search("checked the", in: publication, container: container).first)
+        XCTAssertTrue(result.after.hasPrefix(" compass twice."), result.after)
+        let text = try BookSearcher.bodyText(container.data(at: publication.spine[0].item.path)) as NSString
+        XCTAssertEqual(text.substring(with: NSRange(location: result.offset, length: result.match.utf16.count)), "checked the")
+        XCTAssertTrue(text.contains("compass1 twice"), "Body text keeps the marker, so offsets match reader.js")
+
+        let html = Fixtures.xhtml(##"<p>One<sup><a href="#n2">2</a></sup> two<a epub:type="noteref" href="#n3">[3]</a>.</p>"##)
+        let indexed = try BookSearcher.indexedBodyText(Data(html.utf8))
+        let markers = indexed.noteMarkers.map { (indexed.text as NSString).substring(with: $0) }
+        XCTAssertTrue(markers.contains("2") && markers.contains("[3]"), "\(markers)")
+    }
+
+    func testSearchSnippetsStopAtHeadingsAndParagraphsButKeepOffsets() throws {
+        let archive = try ZipArchive(url: Fixtures.write(SampleBook.make()))
+        let content = try Fixtures.temporaryDirectory()
+        try archive.extractAll(to: content)
+        let container = DirectoryContainer(root: content)
+        let publication = try EPUBParser.parse(container)
+        let text = try BookSearcher.bodyText(container.data(at: publication.spine[0].item.path)) as NSString
+
+        // "Departure" is the heading just before the first paragraph: it mustn't run into the sentence.
+        let captain = try XCTUnwrap(BookSearcher.search("captain", in: publication, container: container).first)
+        XCTAssertEqual(captain.before, "The ", captain.before)
+        XCTAssertEqual(text.substring(with: NSRange(location: captain.offset, length: captain.match.utf16.count)), "captain")
+        let twice = try XCTUnwrap(BookSearcher.search("twice", in: publication, container: container).first)
+        XCTAssertEqual(twice.after, ".", "The next paragraph isn't part of the snippet")
+
+        let html = Fixtures.xhtml("<h1>Departure</h1>\n<p>The captain sailed.<br/>Night fell.</p><ul><li>One</li><li>Two</li></ul>")
+        let indexed = try BookSearcher.indexedBodyText(Data(html.utf8))
+        let source = indexed.text as NSString
+        let starts = ["Departure", "The captain", "Night", "One", "Two"].map { source.range(of: $0).location }
+        XCTAssertTrue(Set(starts).isSubset(of: indexed.blockBoundaries), "\(indexed.blockBoundaries) vs \(starts)")
+        XCTAssertFalse(indexed.blockBoundaries.contains(source.range(of: "captain").location))
+    }
+
     func testBodyTextSkipsScriptsAndStyles() throws {
         let html = Fixtures.xhtml("<style>p{}</style><p>Hello <b>world</b></p><script>var x = 1;</script>&amp; more")
         XCTAssertEqual(try BookSearcher.bodyText(Data(html.utf8)), "Hello world& more")
@@ -187,6 +229,51 @@ final class ReaderLogicTests: XCTestCase {
         XCTAssertGreaterThan(wideMargins.side, padPortrait.side, "The margin setting still widens capped margins")
     }
 
+    func testLandscapePhoneColumnsClearTheDynamicIslandWithoutDoublingTheGutter() {
+        let safeArea = UIEdgeInsets(top: 0, left: 62, bottom: 21, right: 62)
+        let layout = ReaderLayout(size: CGSize(width: 874, height: 402), safeArea: safeArea,
+                                  margins: 1, fontScale: 1, scrolls: false, allowsColumns: true)
+        XCTAssertEqual(layout.columns, 2)
+        XCTAssertEqual(layout.inset, 62, "Pages sit clear of the Dynamic Island")
+        XCTAssertEqual(layout.side, 24, "Columns get the phone's plain margin, not a big-screen margin or the safe area")
+        let columnText = (874 - 2 * layout.inset) / 2 - 2 * layout.side
+        XCTAssertLessThan(2 * layout.side, columnText / 4, "The gutter is a normal reading gutter")
+
+        let portrait = ReaderLayout(size: CGSize(width: 402, height: 874), safeArea: UIEdgeInsets(top: 62, left: 0, bottom: 34, right: 0),
+                                    margins: 1.25, fontScale: 1, scrolls: false, allowsColumns: true)
+        XCTAssertEqual(portrait.side, 30, "The margin setting applies in full")
+        XCTAssertEqual(portrait.inset, 0)
+
+        let scrolling = ReaderLayout(size: CGSize(width: 874, height: 402), safeArea: safeArea,
+                                     margins: 1, fontScale: 1, scrolls: true, allowsColumns: true)
+        XCTAssertEqual(874 - 2 * scrolling.inset - 2 * scrolling.side, ReaderLayout.readableMeasure, accuracy: 0.5,
+                       "Landscape scroll mode caps the line length")
+    }
+
+    func testPagesKeepTextClearOfTheControls() {
+        let safeArea = UIEdgeInsets(top: 62, left: 0, bottom: 34, right: 0)
+        let phone = ReaderLayout(size: CGSize(width: 402, height: 874), safeArea: safeArea,
+                                 margins: 1, fontScale: 1, scrolls: false, allowsColumns: true)
+        // The top row of glass buttons is 44 pt tall, 4 pt below the safe area; the menu button is 48 pt, 4 pt above it.
+        XCTAssertGreaterThanOrEqual(phone.top, safeArea.top + 4 + 44 + 8)
+        XCTAssertGreaterThanOrEqual(phone.bottom, safeArea.bottom + 4 + 48 + 4)
+
+        let pad = ReaderLayout(size: CGSize(width: 1032, height: 1376), safeArea: UIEdgeInsets(top: 24, left: 0, bottom: 20, right: 0),
+                               margins: 1, fontScale: 1, scrolls: false, allowsColumns: true)
+        XCTAssertGreaterThan(pad.top - 24, phone.top - safeArea.top, "Big screens get roomier page margins")
+    }
+
+    func testUnsetReaderOptionsAreSentAsNull() throws {
+        let config = ScriptConfiguration(
+            mode: "paginated", insets: .init(top: 0, bottom: 0, side: 24), columns: 1, fontScale: 1, fontFamily: nil,
+            bold: false, lineHeight: nil, letterSpacing: 0, wordSpacing: 0, justify: false, dark: false,
+            colors: .init(background: "#fff", text: "#000", link: "#00f", override: false))
+        let object = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(config.json.utf8)) as? [String: Any])
+        // `reader.js` merges each configuration into the last, so a missing key would keep the old theme's value.
+        XCTAssertTrue(object["fontFamily"] is NSNull, "Switching to a theme with the book's own font clears the last one")
+        XCTAssertTrue(object["lineHeight"] is NSNull)
+    }
+
     func testScrollFadesHugTheEdges() {
         let stops = ReaderLayout.scrollFadeStops(height: 1000, safeArea: UIEdgeInsets(top: 60, left: 0, bottom: 30, right: 0))
         XCTAssertEqual(stops.count, 4)
@@ -215,5 +302,32 @@ final class ReaderLogicTests: XCTestCase {
         XCTAssertEqual(book.percentRead, 0.01, "Opening a book counts as starting it")
         book.progress = 0.426
         XCTAssertEqual(book.percentRead, 0.43, accuracy: 0.0001)
+    }
+
+    func testWholePercentIsSharedByHomeAndTheReader() {
+        XCTAssertEqual(Book.wholePercent(0.001, opened: false), 0)
+        XCTAssertEqual(Book.wholePercent(0.001, opened: true), 1, "An open book shows at least 1%, in the reader as on Home")
+        XCTAssertEqual(Book.wholePercent(0.426, opened: true), 43)
+        XCTAssertEqual(Book.wholePercent(1, opened: true), 100)
+    }
+
+    func testSecondaryTextIsReadableOnEveryTheme() {
+        func linear(_ channel: UInt32) -> Double {
+            let value = Double(channel & 0xFF) / 255
+            return value <= 0.03928 ? value / 12.92 : pow((value + 0.055) / 1.055, 2.4)
+        }
+        func luminance(_ hex: UInt32) -> Double {
+            let red = 0.2126 * linear(hex >> 16)
+            let green = 0.7152 * linear(hex >> 8)
+            return red + green + 0.0722 * linear(hex)
+        }
+        for theme in ReaderThemeID.allCases {
+            for dark in [false, true] {
+                let palette = theme.palette(dark: dark)
+                let (a, b) = (luminance(palette.secondary), luminance(palette.background))
+                let contrast = (max(a, b) + 0.05) / (min(a, b) + 0.05)
+                XCTAssertGreaterThanOrEqual(contrast, 4.5, "\(theme) \(dark ? "dark" : "light") secondary text")
+            }
+        }
     }
 }

@@ -76,8 +76,13 @@ final class Book {
 
     /// Progress rounded to a whole percent, at least 1% once a book has been opened, as Apple Books shows it.
     var percentRead: Double {
-        let percent = (progress * 100).rounded()
-        return (lastOpened == nil ? percent : max(1, percent)) / 100
+        Double(Self.wholePercent(progress, opened: lastOpened != nil)) / 100
+    }
+
+    /// The whole percent shown for `progress` wherever progress appears, so Home and the reader agree.
+    static func wholePercent(_ progress: Double, opened: Bool) -> Int {
+        let percent = Int((progress * 100).rounded())
+        return opened ? max(1, percent) : percent
     }
 
     var highlights: [Annotation] {

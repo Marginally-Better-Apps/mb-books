@@ -96,17 +96,20 @@ final class ScreenshotTour: XCTestCase {
         save("05-customize")
         app.navigationBars.buttons.element(boundBy: 0).tap()
         app.buttons["theme.quiet"].tap()
-        app.buttons["Done"].firstMatch.tap()
+        app.buttons["Close"].firstMatch.tap()
         save("06-quiet")
         showChrome()
         app.buttons["reader.menu"].tap()
         app.buttons["reader.menu.contents"].tap()
         save("07-contents")
-        app.buttons["Done"].firstMatch.tap()
+        app.buttons["Close"].firstMatch.tap()
         showChrome()
         app.buttons["reader.menu"].tap()
         app.buttons["reader.menu.search"].tap()
-        app.textFields["bookSearch.field"].typeText("compass")
+        let searchField = app.searchFields.firstMatch
+        XCTAssertTrue(searchField.waitForExistence(timeout: 5))
+        searchField.tap()
+        searchField.typeText("compass")
         sleep(1)
         save("08-search")
         app.buttons.matching(NSPredicate(format: "label CONTAINS 'compass'")).firstMatch.tap()
@@ -181,7 +184,7 @@ final class ScreenshotTour: XCTestCase {
         save("06-book-menu")
         app.buttons["Book Details"].tap()
         save("07-details")
-        app.buttons["Done"].firstMatch.tap()
+        app.buttons["Close"].firstMatch.tap()
         sleep(1)
         app.buttons["library.collections"].tap()
         save("08-collections")
@@ -222,20 +225,26 @@ final class ScreenshotTour: XCTestCase {
         app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
         save("04-pill")
         app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
-        _ = app.buttons["listen.options"].waitForExistence(timeout: 3)
-        app.buttons["listen.options"].tap()
+        _ = app.buttons["reader.listen"].waitForExistence(timeout: 3)
+        app.buttons["reader.listen"].tap()
         save("05-options")
         for _ in 0..<8 where !(app.buttons["listen.contents"].exists && app.buttons["listen.contents"].isHittable) { app.swipeUp() }
         app.buttons["listen.contents"].tap()
         sleep(2)
         save("06-whats-read")
         app.navigationBars.buttons.element(boundBy: 0).tap()
-        for _ in 0..<8 where !app.buttons["voice.preview.george"].isHittable { app.swipeDown() }
+        for _ in 0..<8 where !app.buttons["listen.voice"].isHittable { app.swipeDown() }
+        app.buttons["listen.voice"].tap()
+        for _ in 0..<8 where !app.buttons["voice.preview.george"].isHittable { app.swipeUp() }
         save("07-voices")
         app.buttons["voice.preview.george"].tap()
         save("08-preview")
-        app.swipeUp()
+        let appleVoice = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'voice.select.com.apple'")).firstMatch
+        for _ in 0..<8 where !(appleVoice.exists && appleVoice.isHittable) { app.swipeDown() }
+        appleVoice.tap()
         save("09-apple-voices")
+        app.navigationBars.buttons.element(boundBy: 0).tap()
+        _ = app.buttons["listen.done"].waitForExistence(timeout: 3)
         app.buttons["listen.done"].tap()
         app.swipeLeft()
         sleep(2)
@@ -262,7 +271,7 @@ final class ScreenshotTour: XCTestCase {
             app.buttons["reader.menu.themes"].tap()
             app.buttons["themes.pageTurn"].tap()
             app.buttons["Scroll"].firstMatch.tap()
-            app.buttons["Done"].firstMatch.tap()
+            app.buttons["Close"].firstMatch.tap()
             sleep(1)
             if !app.buttons["reader.listen"].exists { app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap() }
         }
@@ -304,9 +313,9 @@ final class ScreenshotTour: XCTestCase {
         }
         XCTAssertTrue(app.buttons["listen.playPause"].exists || app.buttons["listen.pill"].exists)
         // What's read aloud, named from the book's table of contents.
-        if !app.buttons["listen.options"].exists { app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap() }
-        if app.buttons["listen.options"].waitForExistence(timeout: 3) {
-            app.buttons["listen.options"].tap()
+        if !app.buttons["reader.listen"].exists { app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap() }
+        if app.buttons["reader.listen"].waitForExistence(timeout: 3) {
+            app.buttons["reader.listen"].tap()
             for _ in 0..<8 where !(app.buttons["listen.contents"].exists && app.buttons["listen.contents"].isHittable) { app.swipeUp() }
             app.buttons["listen.contents"].tap()
             sleep(4)
@@ -348,11 +357,13 @@ final class ScreenshotTour: XCTestCase {
             _ = app.buttons["reader.listen"].waitForExistence(timeout: 3)
         }
         app.buttons["reader.listen"].tap()
-        XCTAssertTrue(app.buttons["listen.options"].waitForExistence(timeout: 10))
-        app.buttons["listen.options"].tap()
+        XCTAssertTrue(app.buttons["listen.playPause"].waitForExistence(timeout: 10))
+        app.buttons["reader.listen"].tap()
         sleep(1)
         save("01-voices")
+        app.buttons["listen.voice"].tap()
         app.buttons["voice.select.bill_boerst"].tap()
+        app.navigationBars.buttons.element(boundBy: 0).tap()
         app.buttons["listen.done"].tap()
         for second in 0..<8 {
             sleep(2)
@@ -380,7 +391,7 @@ final class ScreenshotTour: XCTestCase {
             app.buttons["reader.menu.themes"].tap()
             app.buttons["themes.pageTurn"].tap()
             app.buttons[style].firstMatch.tap()
-            app.buttons["Done"].firstMatch.tap()
+            app.buttons["Close"].firstMatch.tap()
             sleep(1)
             // A slow drag held at the middle of the page, then released.
             point(0.9).press(forDuration: 0.1, thenDragTo: point(0.45), withVelocity: 300, thenHoldForDuration: 1)
@@ -399,6 +410,95 @@ final class ScreenshotTour: XCTestCase {
             point(0.05).tap()
             sleep(1)
         }
+    }
+
+    /// Hammers page turns in each style, in bursts of taps and flicks across chapter boundaries, and saves a
+    /// screenshot after each burst. A page whose middle is one flat color is blank. Writes `stress.txt`.
+    /// Uses the first book in `MB_TOUR_DIR` if set (longer books cross more chapters), otherwise the sample book.
+    func testPageTurnStressTour() throws {
+        let environment = ProcessInfo.processInfo.environment
+        guard let output = environment["MB_TOUR_OUTPUT"] else {
+            throw XCTSkip("Set MB_TOUR_OUTPUT to run the screenshot tour.")
+        }
+        let outputURL = URL(filePath: output)
+        try FileManager.default.createDirectory(at: outputURL, withIntermediateDirectories: true)
+        let app = XCUIApplication()
+        if let books = environment["MB_TOUR_DIR"] {
+            app.launchArguments = ["-ui-testing", "-import-directory", books]
+        } else {
+            app.launchArguments = ["-ui-testing", "-seed-sample-book"]
+        }
+        app.launch()
+        app.tabBars.buttons["Library"].tap()
+        let book = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'book.'")).firstMatch
+        XCTAssertTrue(book.waitForExistence(timeout: 30))
+        book.tap()
+        sleep(4)
+        func point(_ x: CGFloat) -> XCUICoordinate { app.coordinate(withNormalizedOffset: CGVector(dx: x, dy: 0.5)) }
+        func openThemes() {
+            if !app.buttons["reader.menu"].exists { point(0.5).tap() }
+            app.buttons["reader.menu"].tap()
+            app.buttons["reader.menu.themes"].tap()
+        }
+        if let theme = environment["MB_TOUR_THEME"] {
+            openThemes()
+            app.buttons["theme.\(theme)"].tap()
+            app.buttons["Close"].firstMatch.tap()
+            sleep(1)
+        }
+        var log: [String] = []
+        var blanks = 0
+        for style in ["Slide", "Curl", "Fast Fade"] {
+            openThemes()
+            app.buttons["themes.pageTurn"].tap()
+            app.buttons[style].firstMatch.tap()
+            app.buttons["Close"].firstMatch.tap()
+            sleep(1)
+            for burst in 0..<12 {
+                // Mostly forward, sometimes back, so chapter boundaries get crossed both ways mid-turn.
+                let forward = burst % 4 != 3
+                for step in 0..<12 {
+                    if step % 3 == 2 {
+                        forward ? app.swipeLeft(velocity: .fast) : app.swipeRight(velocity: .fast)
+                    } else {
+                        point(forward ? 0.95 : 0.05).tap()
+                    }
+                }
+                sleep(2)
+                let shot = XCUIScreen.main.screenshot()
+                let blank = Self.isBlank(shot.image)
+                let name = "stress-\(style.replacingOccurrences(of: " ", with: ""))-\(burst)"
+                try? shot.pngRepresentation.write(to: outputURL.appending(path: "\(name).png"))
+                log.append("\(name) blank=\(blank)")
+                if blank {
+                    blanks += 1
+                    // Does the blank page come back by itself?
+                    sleep(4)
+                    let later = XCUIScreen.main.screenshot()
+                    try? later.pngRepresentation.write(to: outputURL.appending(path: "\(name)-later.png"))
+                    log.append("\(name)-later blank=\(Self.isBlank(later.image))")
+                }
+            }
+        }
+        log.append("blanks=\(blanks)")
+        try? log.joined(separator: "\n").write(to: outputURL.appending(path: "stress.txt"), atomically: true, encoding: .utf8)
+    }
+
+    /// Whether the middle of the screen is a single flat color, with no text on it.
+    private static func isBlank(_ image: UIImage) -> Bool {
+        guard let cgImage = image.cgImage else { return false }
+        let width = 60, height = 120
+        var pixels = [UInt8](repeating: 0, count: width * height)
+        guard let context = CGContext(data: &pixels, width: width, height: height, bitsPerComponent: 8, bytesPerRow: width,
+                                      space: CGColorSpaceCreateDeviceGray(), bitmapInfo: CGImageAlphaInfo.none.rawValue)
+        else { return false }
+        // The middle 60% of the height, clear of the status bar and controls.
+        let crop = cgImage.cropping(to: CGRect(x: 0, y: Double(cgImage.height) * 0.2,
+                                               width: Double(cgImage.width), height: Double(cgImage.height) * 0.6)) ?? cgImage
+        context.interpolationQuality = .low
+        context.draw(crop, in: CGRect(x: 0, y: 0, width: width, height: height))
+        guard let low = pixels.min(), let high = pixels.max() else { return false }
+        return Int(high) - Int(low) < 12
     }
 
     /// Captures the main screens in portrait and landscape, for checking layouts across iPhone and iPad sizes.
@@ -420,12 +520,16 @@ final class ScreenshotTour: XCTestCase {
             _ = app.buttons["reader.menu"].waitForExistence(timeout: 3)
         }
         func closeSheet() {
-            app.buttons["Done"].firstMatch.tap()
+            app.buttons["Close"].firstMatch.tap()
             sleep(1)
         }
         /// Highlights a word, so the highlight menu appears anchored to it.
         func highlight(_ text: String, _ name: String) {
-            app.webViews.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", text)).firstMatch.press(forDuration: 1.2)
+            // In scroll mode the named paragraph may have scrolled away; press the first match that's on screen.
+            let matches = app.webViews.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", text))
+            let screen = app.windows.firstMatch.frame
+            let visible = matches.allElementsBoundByIndex.first { $0.frame.minY > screen.minY + 120 && $0.frame.minY < screen.maxY - 160 }
+            (visible ?? matches.firstMatch).press(forDuration: 1.2)
             if app.menuItems["Highlight"].waitForExistence(timeout: 3) {
                 app.menuItems["Highlight"].tap()
                 save(name)
@@ -459,7 +563,7 @@ final class ScreenshotTour: XCTestCase {
             app.swipeUp()
             sleep(1)
             save("\(label)-07-scroll")
-            highlight("Paragraph 6", "\(label)-07b-scroll-highlight")
+            highlight("Paragraph", "\(label)-07b-scroll-highlight")
             showChrome()
             app.buttons["reader.menu"].tap()
             app.buttons["reader.menu.contents"].tap()

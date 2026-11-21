@@ -101,6 +101,10 @@ final class ListeningSession {
 
     var isActive: Bool { state != .idle }
     var isPlaying: Bool { state == .playing }
+    /// Why listening couldn't start or had to stop, until it's tried again or stopped.
+    var failureMessage: String? {
+        if case .failed(let message) = state { message } else { nil }
+    }
     var currentUtterance: SpeechUtterance? {
         guard let chapter, chapter.utterances.indices.contains(index) else { return nil }
         return chapter.utterances[index]

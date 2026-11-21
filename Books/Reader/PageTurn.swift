@@ -107,6 +107,8 @@ final class SlidePagePresenter: UIViewController, PageTurnPresenting, UIGestureR
     private var turn: PageTurn?
     private var animator: UIViewPropertyAnimator?
     private var isDragging = false
+    /// Where a drag that caught a settling page picked it up, as turn progress.
+    private var dragStart: CGFloat = 0
     private lazy var pan = UIPanGestureRecognizer(target: self, action: #selector(handlePan(_:)))
 
     var isTurning: Bool { turn != nil || isDragging || animator != nil }
@@ -226,10 +228,17 @@ final class SlidePagePresenter: UIViewController, PageTurnPresenting, UIGestureR
         let translation = gesture.translation(in: view).x
         switch gesture.state {
         case .began:
+            dragStart = 0
+            let direction = translation != 0 ? translation : gesture.velocity(in: view).x
+            let side: PageTurn.Side = direction < 0 ? .right : .left
+            if catchSettlingPage(swipingToward: side) {
+                // The finger took hold of the page in flight; it moves from where it is, either way.
+                track(translation, width: width)
+                return
+            }
             completeRunningTurn()
             isDragging = true
-            let direction = translation != 0 ? translation : gesture.velocity(in: view).x
-            if let turn = dataSource?.pageTurn(toward: direction < 0 ? .right : .left) {
+            if let turn = dataSource?.pageTurn(toward: side) {
                 begin(turn)
                 if style == .fade {
                     // Fast Fade turns as soon as the swipe is recognized.
@@ -260,7 +269,23 @@ final class SlidePagePresenter: UIViewController, PageTurnPresenting, UIGestureR
 
     private func progress(of translation: CGFloat, width: CGFloat) -> CGFloat {
         let sign: CGFloat = turn?.side == .right ? -1 : 1
-        return min(max(translation * sign / width, 0), 1)
+        return min(max(dragStart + translation * sign / width, 0), 1)
+    }
+
+    /// Stops a Slide turn that is settling and hands it to the finger, like catching a page as it falls, so a
+    /// swipe back mid-animation returns to the page it left instead of finishing the turn and turning again.
+    private func catchSettlingPage(swipingToward side: PageTurn.Side) -> Bool {
+        // A swipe the same way as the turn is the next page; only a swipe back takes hold of this one.
+        guard style == .slide, let animator, let turn, animator.state == .active, side != turn.side else { return false }
+        let width = max(view.bounds.width, 1)
+        // The incoming page's on-screen offset says how far the turn has got.
+        let offset = turn.incoming.layer.presentation()?.affineTransform().tx ?? turn.incoming.transform.tx
+        animator.stopAnimation(true)
+        self.animator = nil
+        isDragging = true
+        dragStart = min(max(1 - abs(offset) / width, 0), 1)
+        apply(progress: dragStart)
+        return true
     }
 
     private func track(_ translation: CGFloat, width: CGFloat) {
