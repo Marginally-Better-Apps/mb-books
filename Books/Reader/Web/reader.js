@@ -215,16 +215,16 @@
     return Math.max(1, count);
   }
 
-  const visibleMedia = new Set(['img', 'svg', 'video', 'canvas', 'iframe', 'object', 'embed', 'math', 'hr', 'image']);
+  const visibleMedia = new Set(['img', 'svg', 'video', 'audio', 'canvas', 'iframe', 'object', 'embed', 'math', 'hr', 'image']);
 
   /// The number of pages up to and including the last one with something on it: text, or an image or other media.
   /// Searches backward from the end of the document, since columns follow document order.
   function countContentPages() {
-    if (!isPaginated() || !document.body) return null;
+    // Right-to-left pages keep every column: native page turns don't bound them yet, so a bound here would
+    // snap each turn back and never reach the next chapter.
+    if (!isPaginated() || !document.body || isRTL()) return null;
     const width = pageWidth();
-    const pageOf = (rect) => (isRTL()
-      ? Math.floor((width - (rect.right + window.scrollX) + 1) / width)
-      : Math.floor((rect.left + window.scrollX + 1) / width));
+    const pageOf = (rect) => Math.floor((rect.left + window.scrollX + 1) / width);
     const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT | NodeFilter.SHOW_ELEMENT);
     let node = document.body;
     while (node.lastChild) node = node.lastChild;
@@ -1030,6 +1030,7 @@
     Promise.race([fonts, timeout]).then(() => {
       applyStyles();
       padColumns();
+      state.contentPages = countContentPages();
       state.ready = true;
       const info = layoutInfo();
       post('ready', info);

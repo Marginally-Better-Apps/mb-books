@@ -737,8 +737,10 @@ final class ReaderViewController: UIViewController {
         let point = gesture.location(in: view)
         guard handlesEdgeTapsNatively, let side = edgeSide(at: point), model.popover == nil, !hasSelection else { return }
         let chapter = current!
+        // The page is inset from the edges in landscape, so hit-test where the tap falls on it.
+        let pagePoint = gesture.location(in: chapter.webView)
         Task {
-            let hit = try? await call("return MB.isInteractiveAt(x, y)", ["x": point.x, "y": point.y], in: chapter)
+            let hit = try? await call("return MB.isInteractiveAt(x, y)", ["x": pagePoint.x, "y": pagePoint.y], in: chapter)
             guard hit as? Bool == false, chapter === current else { return }
             turn(toward: side)
         }
